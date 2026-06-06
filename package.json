@@ -3,15 +3,22 @@
   "version": "0.1.0",
   "description": "Atoll Navigator — sliding-maze puzzle & economy simulator (React)",
   "main": "src/AtollSim.jsx",
+  "type": "module",
   "scripts": {
-    "start": "npx serve docs",
-    "preview": "python -m http.server 8000 --directory docs",
-    "build": "echo \"No build step configured. Add a bundler to build a standalone demo.\""
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "npm run dev"
   },
   "keywords": ["game","react","puzzle","atoll","simulator"],
   "license": "MIT",
   "dependencies": {
     "react": "^18.0.0",
+    "react-dom": "^18.0.0",
     "recharts": "^2.4.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
   }
 }
