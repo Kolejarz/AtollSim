@@ -154,3 +154,167 @@ export function simulateTeam(eco, pool, settings) {
     perTurn, heldOverTime, turnsStuck, cascadeTotal,
     oceanWindsTotal, oceanMapsTotal, oceanVPtotal, puzzleWindsTotal, puzzleVPtotal };
 }
+
+/* ---------- STRATEGY-AWARE SIMULATION ---------- */
+export const STRATEGIES = [
+  { id: 'balanced',  color: '#5fc9d6' },
+  { id: 'bigGame',   color: '#d4a73c' },
+  { id: 'patient',   color: '#9fffc0' },
+  { id: 'windSaver', color: '#e8623d' },
+];
+
+export function simulateTeamDetailed(eco, pool, settings, strategy = 'balanced') {
+  const bank = { U: 0, D: 0, L: 0, R: 0, J: 0 };
+  let held = [], vp = 0, solved = 0;
+  const perTurn = [], heldOverTime = [], turnLog = [];
+  let turnsStuck = 0, cascadeTotal = 0;
+  let oceanWindsTotal = 0, oceanMapsTotal = 0, oceanVPtotal = 0;
+  let puzzleWindsTotal = 0, puzzleVPtotal = 0;
+
+  const bankTotal = () => bank.U + bank.D + bank.L + bank.R + bank.J;
+
+  function pickSize() {
+    const sizes = settings.sizes.filter((sz) => (eco.mapStackSplit[sz] ?? 0) > 0);
+    if (!sizes.length) return settings.sizes[0] ?? 5;
+    const ws = sizes.map((sz) => eco.mapStackSplit[sz]); const tot = ws.reduce((a, b) => a + b, 0);
+    let x = rng() * tot; for (let i = 0; i < sizes.length; i++) { x -= ws[i]; if (x <= 0) return sizes[i]; } return sizes[0];
+  }
+  function drawAtoll() { const sz = pickSize(); const arr = pool[sz]; return arr?.length ? arr[randint(0, arr.length - 1)] : null; }
+
+  function grant(row, isOcean) {
+    const r = lookupRow(eco.table, row);
+    for (let i = 0; i < r.winds; i++) bank[randType(settings.jokers)]++;
+    vp += r.vp;
+    if (isOcean) { oceanWindsTotal += r.winds; oceanMapsTotal += r.maps; oceanVPtotal += r.vp; }
+    else { puzzleWindsTotal += r.winds; puzzleVPtotal += r.vp; }
+    if (r.maps) { const a = drawAtoll(); if (a) held.push(a); }
+    return r;
+  }
+
+  function sortedHeld() {
+    if (strategy === 'bigGame') return [...held].sort((a, b) => b.size - a.size || b.optLen - a.optLen);
+    return [...held].sort((a, b) => a.optLen - b.optLen);
+  }
+
+  function shouldSolve(turn) {
+    if (strategy === 'patient') return turn > Math.floor(eco.turnsPerGame * 0.45);
+    if (strategy === 'windSaver') return bankTotal() >= 14;
+    return true;
+  }
+
+  for (let turn = 1; turn <= eco.turnsPerGame; turn++) {
+    const windsBefore = bankTotal();
+    const dayBonus = getDayBonus(eco.dayBonusSchedule, turn);
+    let oceanW = 0, oceanM = 0, oceanV = 0;
+
+    for (let t = 0; t < eco.tilesPerTurn; t++) {
+      const base = randint(eco.oceanBaseMin, eco.oceanBaseMax);
+      const r = grant(base + dayBonus + eco.promotion, true);
+      oceanW += r.winds; oceanM += r.maps; oceanV += r.vp;
+    }
+
+    let submitted = 0, solveCount = 0, solveW = 0, solveV = 0;
+
+    if (shouldSolve(turn)) {
+      let prog = true;
+      while (prog && submitted < eco.submissionCap) {
+        prog = false;
+        const sorted = sortedHeld();
+        for (let i = 0; i < sorted.length; i++) {
+          const p = sorted[i];
+          const f = p.reqMultisets.find((r) => coverable(r, bank));
+          if (f) {
+            let jU = 0; for (const d of DIR_LIST) { const pay = Math.min(f[d], bank[d]); bank[d] -= pay; jU += f[d] - pay; } bank.J -= jU;
+            const idx = held.indexOf(p); if (idx >= 0) held.splice(idx, 1);
+            solved++; submitted++;
+            const r = grant((eco.puzzleBaseRows[p.size] ?? 5) + eco.promotion, false);
+            if (r.maps) cascadeTotal++;
+            solveCount++; solveW += r.winds; solveV += r.vp;
+            prog = true; break;
+          }
+        }
+      }
+    }
+
+    const isStuck = held.length > 0 && !held.some((p) => p.reqMultisets.some((r) => coverable(r, bank)));
+    if (isStuck) turnsStuck++;
+    heldOverTime.push(held.length);
+    perTurn.push(vp);
+    turnLog.push({
+      turn, oceanWinds: oceanW, oceanMaps: oceanM, oceanVP: oceanV,
+      solveCount, solveWinds: solveW, solveVP: solveV,
+      windsBefore, windsAfter: bankTotal(), mapsHeld: held.length, vpAtEnd: vp, stuck: isStuck,
+    });
+  }
+
+  const lw = bankTotal();
+  return {
+    vp, solved, leftoverWinds: lw, heldLeft: held.length, totalValue: vp * 10 + lw,
+    perTurn, heldOverTime, turnsStuck, cascadeTotal,
+    oceanWindsTotal, oceanMapsTotal, oceanVPtotal, puzzleWindsTotal, puzzleVPtotal,
+    turnLog,
+  };
+}
+
+/* ---------- BALANCE ANALYSIS ---------- */
+export function analyzeBalance(sim, eco) {
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  const vps = sim.map((t) => t.vp);
+  const minVP = Math.min(...vps), maxVP = Math.max(...vps);
+  const avgVP = mean(vps);
+  const fairness = minVP > 0 ? maxVP / minVP : maxVP > 0 ? Infinity : 1;
+  const stuckPct = +(mean(sim.map((t) => t.turnsStuck)) / eco.turnsPerGame * 100).toFixed(1);
+  const avgLeftover = +mean(sim.map((t) => t.leftoverWinds)).toFixed(1);
+  const avgBacklogEnd = +mean(sim.map((t) => t.heldOverTime[t.heldOverTime.length - 1] ?? 0)).toFixed(1);
+  const avgCascade = +mean(sim.map((t) => t.cascadeTotal)).toFixed(1);
+  const oceanVP = mean(sim.map((t) => t.oceanVPtotal));
+  const puzzleVP = mean(sim.map((t) => t.puzzleVPtotal));
+  const oceanShare = avgVP > 0 ? +(oceanVP / avgVP * 100).toFixed(0) : 0;
+
+  const issues = [];
+
+  if (stuckPct > 30)
+    issues.push({ sev: 'bad', key: 'windScarcityHigh', val: stuckPct });
+  else if (stuckPct > 15)
+    issues.push({ sev: 'warn', key: 'windScarcityMid', val: stuckPct });
+
+  if (stuckPct < 5 && avgLeftover > 40)
+    issues.push({ sev: 'warn', key: 'windSurplus', val: avgLeftover });
+  else if (stuckPct < 5 && avgLeftover < 5)
+    issues.push({ sev: 'warn', key: 'windTight', val: avgLeftover });
+
+  if (isFinite(fairness) && fairness > 3)
+    issues.push({ sev: 'bad', key: 'fairHigh', val: +fairness.toFixed(1) });
+  else if (isFinite(fairness) && fairness > 2)
+    issues.push({ sev: 'warn', key: 'fairMid', val: +fairness.toFixed(1) });
+  else if (isFinite(fairness) && fairness <= 1.8)
+    issues.push({ sev: 'ok', key: 'fairOk', val: +fairness.toFixed(1) });
+
+  if (avgBacklogEnd > 4)
+    issues.push({ sev: 'warn', key: 'backlogHigh', val: avgBacklogEnd });
+
+  if (avgCascade > 6)
+    issues.push({ sev: 'warn', key: 'cascadeDeep', val: avgCascade });
+
+  if (oceanShare > 55)
+    issues.push({ sev: 'warn', key: 'oceanDominates', val: oceanShare });
+  else if (oceanShare < 20)
+    issues.push({ sev: 'warn', key: 'puzzleDominates', val: 100 - oceanShare });
+
+  const stratGroups = {};
+  sim.forEach((t) => {
+    const s = t.strategy || 'balanced';
+    if (!stratGroups[s]) stratGroups[s] = [];
+    stratGroups[s].push(t.vp);
+  });
+  const stratAvgs = Object.entries(stratGroups).map(([s, v]) => ({ s, avg: mean(v) }));
+  if (stratAvgs.length > 1) {
+    const top = stratAvgs.reduce((a, b) => a.avg > b.avg ? a : b);
+    const bot = stratAvgs.reduce((a, b) => a.avg < b.avg ? a : b);
+    if (top.avg > bot.avg * 1.25)
+      issues.push({ sev: 'warn', key: 'stratImbalance', topS: top.s, botS: bot.s,
+        val: +((top.avg / bot.avg - 1) * 100).toFixed(0) });
+  }
+
+  return { issues, stats: { fairness, stuckPct, avgLeftover, avgBacklogEnd, avgCascade, oceanShare, avgVP } };
+}
