@@ -1,0 +1,17 @@
+{
+  "name": "atoll-navigator",
+  "version": "0.1.0",
+  "description": "Atoll Navigator — sliding-maze puzzle & economy simulator (React)",
+  "main": "src/AtollSim.jsx",
+  "scripts": {
+    "start": "npx serve docs",
+    "preview": "python -m http.server 8000 --directory docs",
+    "build": "echo \"No build step configured. Add a bundler to build a standalone demo.\""
+  },
+  "keywords": ["game","react","puzzle","atoll","simulator"],
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.0.0",
+    "recharts": "^2.4.0"
+  }
+}
