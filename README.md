@@ -1,20 +1,25 @@
 # Atoll Navigator
 
-Atoll Navigator is a sliding-maze puzzle and economy simulator implemented as a React component.
+Sliding-maze puzzle & economy simulator for a summer camp game.
+Built with React + Recharts, deployed to GitHub Pages via Vite.
 
-This branch adds a small repository scaffold and a docs/ landing page so the project can be published with GitHub Pages.
+## Live demo
 
-Quick preview
+https://kolejarz.github.io/AtollSim/
 
-- Clone: git clone https://github.com/Kolejarz/AtollSim.git
-- Switch to the branch: git checkout add-readme-and-pages
-- Preview docs: npx serve docs
+## Local development
 
-Notes
+```bash
+npm install
+npm run dev       # starts dev server at localhost:5173
+```
 
-- The full React source (src/AtollSim.jsx) is included in this branch.
-- GitHub Pages publishing is intentionally left for repository administrators to configure — go to Settings → Pages and point the site to the `docs/` folder on the default branch.
+## Deploy to GitHub Pages
 
-License
+```bash
+npm run build     # compiles into docs/
+git add -A && git commit -m "build" && git push
+```
 
-This PR includes an MIT license file.
+GitHub Pages must be configured to serve from the `docs/` folder on the `master` branch
+(Settings → Pages → Source: "Deploy from a branch" → Branch: `master`, folder: `/docs`).
