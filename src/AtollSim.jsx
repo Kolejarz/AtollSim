@@ -91,8 +91,18 @@ function buildPool(sizes, shallows, K) {
 }
 
 /* ---------- ECONOMY ---------- */
-function drawTierIdx(weights) { const t = weights.reduce((a, b) => a + b, 0) || 1; let x = rng() * t; for (let i = 0; i < weights.length; i++) { x -= weights[i]; if (x <= 0) return i; } return weights.length - 1; }
-function drawReward(tier) { return { winds: Math.max(1, Math.round(tier.winds + (rng() * 2 - 1))), map: rng() < tier.mapChance ? 1 : 0, vp: tier.vp }; }
+const DEFAULT_TABLE = [
+  { winds: 1, maps: 0, vp: 0 }, { winds: 1, maps: 0, vp: 0 }, { winds: 2, maps: 0, vp: 0 },
+  { winds: 2, maps: 1, vp: 0 }, { winds: 2, maps: 0, vp: 1 }, { winds: 3, maps: 1, vp: 1 },
+  { winds: 3, maps: 0, vp: 2 }, { winds: 4, maps: 1, vp: 3 }, { winds: 4, maps: 0, vp: 3 },
+  { winds: 5, maps: 1, vp: 4 }, { winds: 5, maps: 0, vp: 5 }, { winds: 6, maps: 1, vp: 6 },
+  { winds: 6, maps: 1, vp: 7 },
+];
+function lookupRow(table, row) { return table[Math.min(Math.max(row - 1, 0), table.length - 1)]; }
+function getDayBonus(schedule, turn) {
+  for (const { upToDay, bonus } of schedule) if (turn <= upToDay) return bonus;
+  return schedule[schedule.length - 1]?.bonus ?? 0;
+}
 function randType(jokers) {
   const pool = ["U", "D", "L", "R", ...(jokers ? ["J"] : [])];
   const w = pool.map((t) => (t === "J" ? JOKER_WEIGHT : 1)); const tot = w.reduce((a, b) => a + b, 0);
@@ -101,23 +111,56 @@ function randType(jokers) {
 
 /* ---------- TEAM SIMULATION (for stats) ---------- */
 function simulateTeam(eco, pool, settings) {
-  const bank = { U: 0, D: 0, L: 0, R: 0, J: 0 }; let held = [], vp = 0, solved = 0; const perTurn = [];
-  const drawAtoll = () => { const sz = settings.sizes[randint(0, settings.sizes.length - 1)]; const arr = pool[sz]; return arr && arr.length ? arr[randint(0, arr.length - 1)] : null; };
-  const grant = (b) => { for (let i = 0; i < b.winds; i++) bank[randType(settings.jokers)]++; vp += b.vp; if (b.map && held.length < 16) { const a = drawAtoll(); if (a) held.push(a); } };
-  for (let turn = 1; turn <= eco.maxTurns; turn++) {
-    for (let m = 0; m < eco.movesPerTurn; m++) grant(drawReward(eco.tiers[drawTierIdx(eco.oceanTierWeights)]));
-    let prog = true;
-    while (prog) {
+  const bank = { U: 0, D: 0, L: 0, R: 0, J: 0 }; let held = [], vp = 0, solved = 0;
+  const perTurn = [], heldOverTime = [];
+  let turnsStuck = 0, cascadeTotal = 0, oceanWindsTotal = 0, oceanMapsTotal = 0, oceanVPtotal = 0, puzzleWindsTotal = 0, puzzleVPtotal = 0;
+
+  function pickSize() {
+    const sizes = settings.sizes.filter((sz) => (eco.mapStackSplit[sz] ?? 0) > 0);
+    if (!sizes.length) return settings.sizes[0] ?? 5;
+    const ws = sizes.map((sz) => eco.mapStackSplit[sz]); const tot = ws.reduce((a, b) => a + b, 0);
+    let x = rng() * tot; for (let i = 0; i < sizes.length; i++) { x -= ws[i]; if (x <= 0) return sizes[i]; } return sizes[0];
+  }
+  function drawAtoll() { const sz = pickSize(); const arr = pool[sz]; return arr?.length ? arr[randint(0, arr.length - 1)] : null; }
+
+  function grant(row, isOcean) {
+    const r = lookupRow(eco.table, row);
+    for (let i = 0; i < r.winds; i++) bank[randType(settings.jokers)]++;
+    vp += r.vp;
+    if (isOcean) { oceanWindsTotal += r.winds; oceanMapsTotal += r.maps; oceanVPtotal += r.vp; }
+    else { puzzleWindsTotal += r.winds; puzzleVPtotal += r.vp; }
+    if (r.maps) { const a = drawAtoll(); if (a) held.push(a); }
+    return r;
+  }
+
+  for (let turn = 1; turn <= eco.turnsPerGame; turn++) {
+    const dayBonus = getDayBonus(eco.dayBonusSchedule, turn);
+    for (let t = 0; t < eco.tilesPerTurn; t++) {
+      const base = randint(eco.oceanBaseMin, eco.oceanBaseMax);
+      grant(base + dayBonus + eco.promotion, true);
+    }
+    let submitted = 0, prog = true;
+    while (prog && submitted < eco.submissionCap) {
       prog = false; held.sort((a, b) => a.optLen - b.optLen);
       for (let i = 0; i < held.length; i++) {
         const p = held[i]; const f = p.reqMultisets.find((r) => coverable(r, bank));
-        if (f) { let jU = 0; for (const d of DIR_LIST) { const pay = Math.min(f[d], bank[d]); bank[d] -= pay; jU += f[d] - pay; } bank.J -= jU; held.splice(i, 1); solved++; grant(drawReward(eco.tiers[eco.sizeTier[p.size] ?? 0])); prog = true; break; }
+        if (f) {
+          let jU = 0; for (const d of DIR_LIST) { const pay = Math.min(f[d], bank[d]); bank[d] -= pay; jU += f[d] - pay; } bank.J -= jU;
+          held.splice(i, 1); solved++; submitted++;
+          const r = grant((eco.puzzleBaseRows[p.size] ?? 5) + eco.promotion, false);
+          if (r.maps) cascadeTotal++;
+          prog = true; break;
+        }
       }
     }
+    if (held.length > 0 && !held.some((p) => p.reqMultisets.some((r) => coverable(r, bank)))) turnsStuck++;
+    heldOverTime.push(held.length);
     perTurn.push(vp);
   }
   const lw = bank.U + bank.D + bank.L + bank.R + bank.J;
-  return { vp, solved, leftoverWinds: lw, heldLeft: held.length, totalValue: vp * eco.vpValue + lw * eco.windValue + held.length * eco.atollMapValue, perTurn };
+  return { vp, solved, leftoverWinds: lw, heldLeft: held.length, totalValue: vp * 10 + lw,
+    perTurn, heldOverTime, turnsStuck, cascadeTotal,
+    oceanWindsTotal, oceanMapsTotal, oceanVPtotal, puzzleWindsTotal, puzzleVPtotal };
 }
 
 /* ============================================================================
@@ -177,8 +220,25 @@ const STR = {
     sTeamsTitle: "Final victory points per team", sTeamsDesc: "Sorted low → high. A steep slope means luck decides the winner; a flat one means crews finish close together.",
     sProgTitle: "Average victory points per turn", sProgDesc: "How fast the average crew accumulates points across the game.",
     sFairOk: (x) => `✓ Spread is moderate (top/bottom ≈ ${x}×) — luck matters but skill can close the gap.`,
-    sFairWarn: (x) => `⚠ Top crew scores ≈ ${x}× the bottom. Outcomes are luck-dominated — flatten the tier gaps or raise Ocean moves per turn so totals converge.`,
+    sFairWarn: (x) => `⚠ Top crew scores ≈ ${x}× the bottom. Outcomes are luck-dominated — widen row gaps or raise tiles per turn.`,
     sProgX: "turn", sProgY: "avg VP",
+    sCascade: "Avg cascade maps", sWindScarcity: "Wind scarcity",
+    sWindStuckDesc: (p) => `${p}% of turns a team cannot attempt any atoll — winds don't match any held puzzle.`,
+    sEcoSummaryTitle: "Economy summary (per team avg)",
+    kOceanWinds: "Ocean winds", kOceanMaps: "Ocean maps", kOceanVP: "Ocean VP",
+    kPuzzleWinds: "Puzzle winds", kPuzzleVP: "Puzzle VP", kLeftover: "Leftover winds",
+    sMapBacklogTitle: "Map backlog over time", sMapBacklogDesc: "Average unsolved maps held per turn. High values mean teams are drowning; low means maps are scarce.",
+    sMapBacklogX: "turn", sMapBacklogY: "avg maps held",
+    ecoTableTitle: "Reward table", ecoTableDesc: "One universal lookup. Every ocean tile and every solved atoll maps to a row; the row determines the reward.",
+    ecoDayTitle: "Day bonus schedule", ecoDayDesc: "Bonus added to each tile's base roll (1–6) based on the current day (turn). Ramps rewards as camp progresses.",
+    ecoPuzzleTitle: "Puzzle base rows (by size)", ecoPuzzleDesc: "Which row a solved atoll draws from before promotion is added.",
+    ecoMapSplitTitle: "Map stack split (%)", ecoMapSplitDesc: "Relative weight of each size in the shuffled map stack. Active sizes only.",
+    lblTiles: "Tiles per turn", lblSubmitCap: "Submissions per visit",
+    lblPromotion: "Promotion (global)", lblOceanBase: "Ocean base range",
+    lblAddRow: "Add row", lblResetTable: "Reset to defaults",
+    thRow: "row", thMaps: "maps",
+    pDayBonus: (n) => `day bonus +${n}`, pSubmitsLeft: (n) => `${n} submit${n === 1 ? "" : "s"} left`,
+    upToDay: "Up to day", bonusLabel: "Bonus",
   },
   pl: {
     sub: "gra ślizgającej się łamigłówki · symulator ekonomii",
@@ -229,8 +289,25 @@ const STR = {
     sTeamsTitle: "Końcowe punkty zwycięstwa wg drużyny", sTeamsDesc: "Sortowane rosnąco. Stromy wykres oznacza, że o zwycięstwie decyduje szczęście; płaski — drużyny kończą blisko siebie.",
     sProgTitle: "Średnie punkty zwycięstwa na turę", sProgDesc: "Jak szybko przeciętna drużyna zdobywa punkty w trakcie gry.",
     sFairOk: (x) => `✓ Rozrzut umiarkowany (góra/dół ≈ ${x}×) — szczęście ma znaczenie, ale umiejętność może nadrobić.`,
-    sFairWarn: (x) => `⚠ Najlepsza drużyna zdobywa ≈ ${x}× tego co najsłabsza. O wyniku decyduje szczęście — spłaszcz różnice poziomów lub zwiększ ruchy po Oceanie, by wyniki się zbliżyły.`,
+    sFairWarn: (x) => `⚠ Najlepsza drużyna zdobywa ≈ ${x}× tego co najsłabsza. O wyniku decyduje szczęście — zmień rozpiętość rzędów lub zwiększ kafelki na turę.`,
     sProgX: "tura", sProgY: "śr. PZ",
+    sCascade: "Śr. mapy kaskadowe", sWindScarcity: "Deficyt wiatru",
+    sWindStuckDesc: (p) => `${p}% tur drużyna nie może podjąć żadnego atolu — wiatry nie pasują do żadnej trzymanej mapy.`,
+    sEcoSummaryTitle: "Podsumowanie ekonomii (śr. na drużynę)",
+    kOceanWinds: "Wiatry z Oceanu", kOceanMaps: "Mapy z Oceanu", kOceanVP: "PZ z Oceanu",
+    kPuzzleWinds: "Wiatry z atoli", kPuzzleVP: "PZ z atoli", kLeftover: "Wiatry pozostałe",
+    sMapBacklogTitle: "Zaleganie map w czasie", sMapBacklogDesc: "Średnia liczba nierozwiązanych map w rękach drużyny na turę. Wysokie wartości = drużyna się dusi; niskie = brak map.",
+    sMapBacklogX: "tura", sMapBacklogY: "śr. map w rękach",
+    ecoTableTitle: "Tabela nagród", ecoTableDesc: "Jeden wspólny lookup. Każdy kafelek Oceanu i każdy rozwiązany atol mapuje się na wiersz; wiersz określa nagrodę.",
+    ecoDayTitle: "Harmonogram bonusów dziennych", ecoDayDesc: "Bonus dodawany do bazowej wartości kafelka (1–6) zależnie od dnia (tury). Rampuje nagrody w trakcie obozu.",
+    ecoPuzzleTitle: "Bazowe rzędy atoli (wg rozmiaru)", ecoPuzzleDesc: "Z którego wiersza wypłaca rozwiązany atol (przed dodaniem promocji).",
+    ecoMapSplitTitle: "Skład stosu map (%)", ecoMapSplitDesc: "Względna waga każdego rozmiaru w potasowanym stosie map. Tylko aktywne rozmiary.",
+    lblTiles: "Kafelki na turę", lblSubmitCap: "Zgłoszenia na wizytę",
+    lblPromotion: "Promocja (globalna)", lblOceanBase: "Zakres bazowy Oceanu",
+    lblAddRow: "Dodaj wiersz", lblResetTable: "Przywróć domyślne",
+    thRow: "wiersz", thMaps: "mapy",
+    pDayBonus: (n) => `bonus dzienny +${n}`, pSubmitsLeft: (n) => `${n} zgłoszeni${n === 1 ? "e" : "a"} pozostałe`,
+    upToDay: "Do dnia", bonusLabel: "Bonus",
   },
 };
 
@@ -354,7 +431,7 @@ function MazeView({ p, shipPos, animPos }) {
 function bundleText(b, L) {
   const parts = [];
   if (b.winds) parts.push(L.tWind(b.winds));
-  if (b.map) parts.push(L.tMap);
+  if (b.maps) parts.push(L.tMap);
   if (b.vp) parts.push(L.tVP(b.vp));
   return parts.join(" · ");
 }
@@ -371,44 +448,52 @@ function PlayTab({ settings, eco, pool, L }) {
   const [anim, setAnim] = useState({});
   const [over, setOver] = useState(null);
   const [turn, setTurn] = useState(1);
-  const [movesLeft, setMovesLeft] = useState(eco.movesPerTurn);
+  const [movesLeft, setMovesLeft] = useState(eco.tilesPerTurn);
+  const [submitsLeft, setSubmitsLeft] = useState(eco.submissionCap);
   const [vp, setVp] = useState(0);
   const [log, setLog] = useState([]);
   const uid = useRef(1);
 
   const drawAtollObj = useCallback(() => {
-    const sz = settings.sizes[randint(0, settings.sizes.length - 1)];
+    const sizes = settings.sizes.filter((sz) => (eco.mapStackSplit[sz] ?? 0) > 0);
+    const pool2 = sizes.length ? sizes : settings.sizes;
+    const sz = pool2[randint(0, pool2.length - 1)];
     const arr = pool[sz]; if (!arr || !arr.length) return null;
     return { ...arr[randint(0, arr.length - 1)], id: "a" + uid.current++ };
-  }, [settings, pool]);
+  }, [settings, pool, eco.mapStackSplit]);
 
   const reset = useCallback(() => {
     setBankWinds([]); setTrays({}); setResults({}); setActive(null); setAnim({});
-    setTurn(1); setMovesLeft(eco.movesPerTurn); setVp(0); setLog([]);
+    setTurn(1); setMovesLeft(eco.tilesPerTurn); setSubmitsLeft(eco.submissionCap); setVp(0); setLog([]);
     const first = drawAtollObj();
     if (first) { setAtolls([first]); setTrays({ [first.id]: [] }); setActive(first.id); } else setAtolls([]);
-  }, [eco.movesPerTurn, drawAtollObj]);
+  }, [eco.tilesPerTurn, eco.submissionCap, drawAtollObj]);
 
   // init once
   const inited = useRef(false);
   if (!inited.current) { inited.current = true; const f = drawAtollObj(); if (f) { atolls.push(f); trays[f.id] = []; } }
 
-  const addReward = (bundle, addTo) => {
+  const addReward = (bundle) => {
     const newWinds = []; for (let i = 0; i < bundle.winds; i++) newWinds.push({ id: uid.current++, type: randType(settings.jokers) });
     setBankWinds((bw) => [...bw, ...newWinds]);
     if (bundle.vp) setVp((v) => v + bundle.vp);
-    if (bundle.map) { const a = drawAtollObj(); if (a) { (addTo || []).push(a); setAtolls((at) => [...at, a]); setTrays((t) => ({ ...t, [a.id]: [] })); } }
+    if (bundle.maps) { const a = drawAtollObj(); if (a) { setAtolls((at) => [...at, a]); setTrays((t) => ({ ...t, [a.id]: [] })); } }
   };
 
   const oceanMove = () => {
-    if (movesLeft <= 0 || turn > eco.maxTurns) return;
-    const bundle = drawReward(eco.tiers[drawTierIdx(eco.oceanTierWeights)]);
+    if (movesLeft <= 0 || turn > eco.turnsPerGame) return;
+    const dayBonus = getDayBonus(eco.dayBonusSchedule, turn);
+    const base = randint(eco.oceanBaseMin, eco.oceanBaseMax);
+    const bundle = lookupRow(eco.table, base + dayBonus + eco.promotion);
     addReward(bundle);
     setMovesLeft((m) => m - 1);
-    setLog((lg) => [{ id: uid.current++, turn, type: "ocean", text: L.logOcean, reward: bundleText(bundle, L) }, ...lg]);
+    setLog((lg) => [{ id: uid.current++, turn, type: "ocean", text: `${L.logOcean} (${base}+${dayBonus})→r${base + dayBonus + eco.promotion}`, reward: bundleText(bundle, L) }, ...lg]);
   };
-  const endTurn = () => { if (turn >= eco.maxTurns) { setTurn(eco.maxTurns + 1); return; } setTurn((t) => t + 1); setMovesLeft(eco.movesPerTurn); };
-  const gameOver = turn > eco.maxTurns;
+  const endTurn = () => {
+    if (turn >= eco.turnsPerGame) { setTurn(eco.turnsPerGame + 1); return; }
+    setTurn((t) => t + 1); setMovesLeft(eco.tilesPerTurn); setSubmitsLeft(eco.submissionCap);
+  };
+  const gameOver = turn > eco.turnsPerGame;
 
   const clearResult = (id) => setResults((r) => { if (!(id in r)) return r; const n = { ...r }; delete n[id]; return n; });
 
@@ -446,14 +531,20 @@ function PlayTab({ settings, eco, pool, L }) {
         const win = pos[0] === p.target[0] && pos[1] === p.target[1];
         setTrays((t) => ({ ...t, [p.id]: [] }));   // winds committed/spent
         if (win) {
-          setAtolls((at) => at.filter((x) => x.id !== p.id));
-          setTrays((t) => { const n = { ...t }; delete n[p.id]; return n; });
-          if (active === p.id) setActive(null);
-          const bundle = drawReward(eco.tiers[eco.sizeTier[p.size] ?? 0]);
+          const bundle = lookupRow(eco.table, (eco.puzzleBaseRows[p.size] ?? 5) + eco.promotion);
           addReward(bundle);
+          setSubmitsLeft((sl) => sl - 1);
           setLog((lg) => [{ id: uid.current++, turn, type: "solve", text: L.logSolve(p.size), reward: bundleText(bundle, L) }, ...lg]);
-          setAnim((a) => { const n = { ...a }; delete n[p.id]; return n; });
+          setResults((r) => ({ ...r, [p.id]: { moves: seq.length, win: true } }));
+          setTimeout(() => {
+            setAtolls((at) => at.filter((x) => x.id !== p.id));
+            setTrays((t) => { const n = { ...t }; delete n[p.id]; return n; });
+            setResults((r) => { const n = { ...r }; delete n[p.id]; return n; });
+            if (active === p.id) setActive(null);
+            setAnim((a) => { const n = { ...a }; delete n[p.id]; return n; });
+          }, 800);
         } else {
+          setSubmitsLeft((sl) => sl - 1);
           setResults((r) => ({ ...r, [p.id]: { moves: seq.length, win: false } }));
           setLog((lg) => [{ id: uid.current++, turn, type: "fail", text: L.logFail(p.size), reward: "" }, ...lg]);
           setTimeout(() => setAnim((a) => { const n = { ...a }; delete n[p.id]; return n; }), 400);
@@ -468,7 +559,7 @@ function PlayTab({ settings, eco, pool, L }) {
   return (
     <>
       <div className="panel">
-        <div className="ph"><span className="num">▣</span><h2>{L.pTurn} {Math.min(turn, eco.maxTurns)} {L.pOf} {eco.maxTurns}</h2>
+        <div className="ph"><span className="num">▣</span><h2>{L.pTurn} {Math.min(turn, eco.turnsPerGame)} {L.pOf} {eco.turnsPerGame}</h2>
           <div style={{ flex: 1 }} />
           <button className="btn primary" disabled={gameOver || movesLeft <= 0} onClick={oceanMove}>⛵ {L.pOcean} ({movesLeft})</button>
           <button className="btn" disabled={gameOver} onClick={endTurn}>{L.pEndTurn}</button>
@@ -479,6 +570,8 @@ function PlayTab({ settings, eco, pool, L }) {
           <div className="score"><div className="k">{L.pMovesLeft}</div><div className="v">{gameOver ? "—" : movesLeft}</div></div>
           <div className="score"><div className="k">{L.pWinds}</div><div className="v">{bankWinds.length}</div></div>
           <div className="score"><div className="k">{L.pMaps}</div><div className="v">{atolls.length}</div></div>
+          {!gameOver && <div className="score"><div className="k">sub</div><div className="v">{submitsLeft}/{eco.submissionCap}</div></div>}
+          {!gameOver && <div className="score"><div className="k">bonus</div><div className="v mono" style={{ fontSize: 16, marginTop: 3, color: "var(--brass)" }}>+{getDayBonus(eco.dayBonusSchedule, Math.min(turn, eco.turnsPerGame))}</div></div>}
           {gameOver && <div className="warn" style={{ flex: 1 }}>{L.pOver}</div>}
         </div>
       </div>
@@ -498,19 +591,19 @@ function PlayTab({ settings, eco, pool, L }) {
           {atolls.length === 0 && <p className="hint">{L.pEmpty}</p>}
           <div className="atolls">
             {atolls.map((p) => {
-              const res = results[p.id]; const tr = trays[p.id] || []; const tIdx = eco.sizeTier[p.size] ?? 0;
+              const res = results[p.id]; const tr = trays[p.id] || []; const baseRow = eco.puzzleBaseRows[p.size] ?? 5;
               return (
                 <div key={p.id} className={"puzzle" + (active === p.id ? " active" : "") + (over === p.id ? " over" : "")}
                   onClick={() => setActive(p.id)} onDragOver={allow} onDragEnter={() => setOver(p.id)} onDragLeave={(e) => { if (e.currentTarget === e.target) setOver(null); }} onDrop={(e) => onDropAtoll(e, p.id)}>
                   <div className="ptag">
                     <span className={`badge s${p.size}`}>{p.size}×{p.size}</span>
                     <span className="badge">{L.pOpt} {p.optLen}</span>
-                    <span className="badge">{L.pTier} {TIER_LABELS[tIdx]}</span>
+                    <span className="badge">{L.pTier} r{baseRow + eco.promotion}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "center", margin: "4px 0 9px" }}><MazeView p={p} shipPos={res ? p.start : p.start} animPos={anim[p.id]} /></div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
                     <span className="hint">{L.pWinds} ({tr.length})</span>
-                    <button className="btn" style={{ padding: "3px 10px", fontSize: 13 }} disabled={!tr.length} onClick={(e) => { e.stopPropagation(); sail(p); }}>▷ {L.pSail}</button>
+                    <button className="btn" style={{ padding: "3px 10px", fontSize: 13 }} disabled={!tr.length || submitsLeft <= 0} onClick={(e) => { e.stopPropagation(); sail(p); }}>▷ {L.pSail}</button>
                   </div>
                   <div className="tray">
                     {tr.length === 0 && <span className="hint" style={{ alignSelf: "center" }}>{L.pAssignHint}</span>}
@@ -519,6 +612,7 @@ function PlayTab({ settings, eco, pool, L }) {
                       onClick={(e) => { e.stopPropagation(); w.fromJoker ? cycleJoker(p.id, w.id) : trayToBank(p.id, w.id); }}
                       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); trayToBank(p.id, w.id); }}>{ARROW[w.dir]}</div>))}
                   </div>
+                  {res && res.win  && <div className="result win">{L.pWin(res.moves, p.optLen)}</div>}
                   {res && !res.win && <div className="result miss">{L.pMiss(res.moves)}</div>}
                   {!res && tr.length > 0 && <div className="result neutral">{L.pPress}</div>}
                 </div>
@@ -555,9 +649,13 @@ function PlayTab({ settings, eco, pool, L }) {
    ECONOMY
    ========================================================================== */
 function EconomyTab({ eco, setEco, settings, L }) {
-  const setTier = (i, k, v) => setEco({ ...eco, tiers: eco.tiers.map((t, j) => (j === i ? { ...t, [k]: v } : t)) });
-  const setWeight = (i, v) => setEco({ ...eco, oceanTierWeights: eco.oceanTierWeights.map((w, j) => (j === i ? v : w)) });
-  const setSizeTier = (sz, v) => setEco({ ...eco, sizeTier: { ...eco.sizeTier, [sz]: v } });
+  const setTableRow = (i, k, v) => setEco({ ...eco, table: eco.table.map((r, j) => j === i ? { ...r, [k]: v } : r) });
+  const addRow = () => setEco({ ...eco, table: [...eco.table, { winds: 1, maps: 0, vp: 0 }] });
+  const removeRow = (i) => { if (eco.table.length <= 1) return; setEco({ ...eco, table: eco.table.filter((_, j) => j !== i) }); };
+  const resetTable = () => setEco({ ...eco, table: DEFAULT_TABLE });
+  const setDayBonus = (i, k, v) => setEco({ ...eco, dayBonusSchedule: eco.dayBonusSchedule.map((e, j) => j === i ? { ...e, [k]: v } : e) });
+  const addDayBonus = () => setEco({ ...eco, dayBonusSchedule: [...eco.dayBonusSchedule, { upToDay: eco.turnsPerGame, bonus: 0 }] });
+  const removeDayBonus = (i) => { if (eco.dayBonusSchedule.length <= 1) return; setEco({ ...eco, dayBonusSchedule: eco.dayBonusSchedule.filter((_, j) => j !== i) }); };
   return (
     <>
       <div className="panel">
@@ -566,64 +664,95 @@ function EconomyTab({ eco, setEco, settings, L }) {
       </div>
 
       <div className="panel">
-        <div className="ph"><span className="num">A</span><h2>{L.ecoValTitle}</h2></div>
-        <p className="note" style={{ marginBottom: 12 }}>{L.ecoValDesc}</p>
-        <div className="row">
-          <div className="ctrl" style={{ marginRight: 18 }}><label>{L.lblWindValue}</label><NumIn value={eco.windValue} set={(v) => setEco({ ...eco, windValue: v })} step={0.5} /></div>
-          <div className="ctrl" style={{ marginRight: 18 }}><label>{L.lblMapValue}</label><NumIn value={eco.atollMapValue} set={(v) => setEco({ ...eco, atollMapValue: v })} step={0.5} /></div>
-          <div className="ctrl"><label>{L.lblVpValue}</label><NumIn value={eco.vpValue} set={(v) => setEco({ ...eco, vpValue: v })} step={0.5} /></div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="ph"><span className="num">B</span><h2>{L.ecoTierTitle}</h2></div>
-        <p className="note" style={{ marginBottom: 10 }}>{L.ecoTierDesc}</p>
+        <div className="ph"><span className="num">A</span><h2>{L.ecoTableTitle}</h2></div>
+        <p className="note" style={{ marginBottom: 10 }}>{L.ecoTableDesc}</p>
         <table>
-          <thead><tr><th>{L.thTier}</th><th>{L.thWinds}</th><th>{L.thMapChance}</th><th>{L.thVP}</th></tr></thead>
+          <thead><tr><th className="mono">{L.thRow}</th><th>{L.thWinds}</th><th>{L.thMaps}</th><th>{L.thVP}</th><th></th></tr></thead>
           <tbody>
-            {eco.tiers.map((t, i) => (
+            {eco.table.map((row, i) => (
               <tr key={i}>
-                <td><span className="badge">{TIER_LABELS[i]}</span></td>
-                <td><NumIn value={t.winds} set={(v) => setTier(i, "winds", v)} /></td>
-                <td><NumIn value={Math.round(t.mapChance * 100)} set={(v) => setTier(i, "mapChance", v / 100)} step={5} max={100} /> %</td>
-                <td><NumIn value={t.vp} set={(v) => setTier(i, "vp", v)} /></td>
+                <td className="mono" style={{ color: "var(--brass)", fontWeight: 600 }}>{i + 1}</td>
+                <td><NumIn value={row.winds} set={(v) => setTableRow(i, "winds", Math.max(1, v))} min={1} /></td>
+                <td>
+                  <select className="sel" value={row.maps} onChange={(e) => setTableRow(i, "maps", +e.target.value)}>
+                    <option value={0}>0</option><option value={1}>1</option>
+                  </select>
+                </td>
+                <td><NumIn value={row.vp} set={(v) => setTableRow(i, "vp", Math.max(0, v))} min={0} /></td>
+                <td><button className="btn ghost" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => removeRow(i)}>×</button></td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button className="btn" onClick={addRow}>+ {L.lblAddRow}</button>
+          <button className="btn ghost" onClick={resetTable}>{L.lblResetTable}</button>
+        </div>
       </div>
 
       <div className="row" style={{ alignItems: "flex-start" }}>
-        <div className="panel" style={{ flex: 1, minWidth: 280 }}>
-          <div className="ph"><span className="num">C</span><h2>{L.ecoOceanTitle}</h2></div>
-          <p className="note" style={{ marginBottom: 12 }}>{L.ecoOceanDesc}</p>
-          <div className="row">
-            {eco.oceanTierWeights.map((w, i) => (
-              <div className="ctrl" key={i} style={{ marginRight: 16 }}><label>{L.thTier} {TIER_LABELS[i]}</label><NumIn value={w} set={(v) => setWeight(i, v)} /></div>
-            ))}
-          </div>
+        <div className="panel" style={{ flex: 1, minWidth: 260 }}>
+          <div className="ph"><span className="num">B</span><h2>{L.ecoDayTitle}</h2></div>
+          <p className="note" style={{ marginBottom: 10 }}>{L.ecoDayDesc}</p>
+          <table>
+            <thead><tr><th>{L.upToDay}</th><th>{L.bonusLabel}</th><th></th></tr></thead>
+            <tbody>
+              {eco.dayBonusSchedule.map((e, i) => (
+                <tr key={i}>
+                  <td><NumIn value={e.upToDay} set={(v) => setDayBonus(i, "upToDay", Math.max(1, v))} min={1} max={eco.turnsPerGame} /></td>
+                  <td>+ <NumIn value={e.bonus} set={(v) => setDayBonus(i, "bonus", Math.max(0, v))} min={0} max={6} /></td>
+                  <td><button className="btn ghost" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => removeDayBonus(i)}>×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="btn" style={{ marginTop: 8 }} onClick={addDayBonus}>+ {L.lblAddRow}</button>
         </div>
-        <div className="panel" style={{ flex: 1, minWidth: 280 }}>
-          <div className="ph"><span className="num">D</span><h2>{L.ecoCompTitle}</h2></div>
-          <p className="note" style={{ marginBottom: 12 }}>{L.ecoCompDesc}</p>
+
+        <div className="panel" style={{ flex: 1, minWidth: 260 }}>
+          <div className="ph"><span className="num">C</span><h2>{L.ecoPuzzleTitle}</h2></div>
+          <p className="note" style={{ marginBottom: 12 }}>{L.ecoPuzzleDesc}</p>
           <div className="row">
             {settings.sizes.map((sz) => (
-              <div className="ctrl" key={sz} style={{ marginRight: 16 }}><label>{sz}×{sz}</label>
-                <select className="sel" value={eco.sizeTier[sz] ?? 0} onChange={(e) => setSizeTier(sz, +e.target.value)}>
-                  {TIER_LABELS.map((lbl, i) => <option key={i} value={i}>{lbl}</option>)}
-                </select>
+              <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
+                <label>{sz}×{sz}</label>
+                <NumIn value={eco.puzzleBaseRows[sz] ?? 5} set={(v) => setEco({ ...eco, puzzleBaseRows: { ...eco.puzzleBaseRows, [sz]: Math.max(1, v) } })} min={1} max={eco.table.length} />
+              </div>
+            ))}
+            <div className="ctrl" style={{ marginRight: 16 }}>
+              <label>{L.lblPromotion}</label>
+              <NumIn value={eco.promotion} set={(v) => setEco({ ...eco, promotion: Math.max(0, v) })} min={0} max={4} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div className="panel" style={{ flex: 1, minWidth: 260 }}>
+          <div className="ph"><span className="num">D</span><h2>{L.ecoMapSplitTitle}</h2></div>
+          <p className="note" style={{ marginBottom: 12 }}>{L.ecoMapSplitDesc}</p>
+          <div className="row">
+            {settings.sizes.map((sz) => (
+              <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
+                <label>{sz}×{sz} %</label>
+                <NumIn value={eco.mapStackSplit[sz] ?? 0} set={(v) => setEco({ ...eco, mapStackSplit: { ...eco.mapStackSplit, [sz]: Math.max(0, v) } })} min={0} max={100} />
               </div>
             ))}
           </div>
         </div>
-      </div>
 
-      <div className="panel">
-        <div className="ph"><span className="num">E</span><h2>{L.ecoTurnTitle}</h2></div>
-        <div className="row">
-          <div style={{ flex: 1, minWidth: 220 }}><Slider label={L.lblMoves} value={eco.movesPerTurn} set={(v) => setEco({ ...eco, movesPerTurn: v })} min={1} max={6} /></div>
-          <div style={{ flex: 1, minWidth: 220 }}><Slider label={L.lblTurns} value={eco.maxTurns} set={(v) => setEco({ ...eco, maxTurns: v })} min={4} max={20} /></div>
-          <div style={{ flex: 1, minWidth: 220 }}><Slider label={L.lblTeams} value={eco.numTeams} set={(v) => setEco({ ...eco, numTeams: v })} min={2} max={24} /></div>
+        <div className="panel" style={{ flex: 1, minWidth: 260 }}>
+          <div className="ph"><span className="num">E</span><h2>{L.ecoTurnTitle}</h2></div>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTiles} value={eco.tilesPerTurn} set={(v) => setEco({ ...eco, tilesPerTurn: v })} min={1} max={6} /></div>
+            <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTurns} value={eco.turnsPerGame} set={(v) => setEco({ ...eco, turnsPerGame: v })} min={4} max={20} /></div>
+            <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTeams} value={eco.numTeams} set={(v) => setEco({ ...eco, numTeams: v })} min={2} max={24} /></div>
+            <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblSubmitCap} value={eco.submissionCap} set={(v) => setEco({ ...eco, submissionCap: v })} min={1} max={8} /></div>
+          </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <div className="ctrl" style={{ marginRight: 16 }}><label>{L.lblOceanBase} min</label><NumIn value={eco.oceanBaseMin} set={(v) => setEco({ ...eco, oceanBaseMin: Math.max(1, v) })} min={1} max={eco.oceanBaseMax} /></div>
+            <div className="ctrl"><label>max</label><NumIn value={eco.oceanBaseMax} set={(v) => setEco({ ...eco, oceanBaseMax: Math.max(eco.oceanBaseMin, v) })} min={eco.oceanBaseMin} max={20} /></div>
+          </div>
         </div>
       </div>
     </>
@@ -644,25 +773,45 @@ function StatsTab({ settings, eco, pool, L }) {
 
   const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   const vps = sim.map((t) => t.vp);
-  const sortedTeams = [...sim].sort((a, b) => a.vp - b.vp).map((t, i) => ({ name: "T" + (i + 1), vp: t.vp, value: Math.round(t.totalValue) }));
+  const sortedTeams = [...sim].sort((a, b) => a.vp - b.vp).map((t, i) => ({ name: "T" + (i + 1), vp: t.vp }));
   const avgVP = mean(vps), avgSolved = mean(sim.map((t) => t.solved)), avgValue = mean(sim.map((t) => t.totalValue));
+  const avgCascade = mean(sim.map((t) => t.cascadeTotal));
   const minVP = Math.min(...vps) || 0, maxVP = Math.max(...vps) || 0;
   const fairness = minVP > 0 ? maxVP / minVP : maxVP > 0 ? Infinity : 1;
+  const avgStuck = mean(sim.map((t) => t.turnsStuck));
+  const stuckPct = eco.turnsPerGame > 0 ? +(avgStuck / eco.turnsPerGame * 100).toFixed(1) : 0;
   const prog = useMemo(() => {
-    const T = eco.maxTurns; const out = [];
+    const T = eco.turnsPerGame; const out = [];
     for (let i = 0; i < T; i++) out.push({ turn: i + 1, vp: +mean(sim.map((t) => t.perTurn[i] || 0)).toFixed(1) });
     return out;
-  }, [sim, eco.maxTurns]);
+  }, [sim, eco.turnsPerGame]);
+  const backlog = useMemo(() => {
+    const T = eco.turnsPerGame; const out = [];
+    for (let i = 0; i < T; i++) out.push({ turn: i + 1, held: +mean(sim.map((t) => t.heldOverTime[i] || 0)).toFixed(2) });
+    return out;
+  }, [sim, eco.turnsPerGame]);
+
+  const ecoSummary = {
+    oceanWinds: mean(sim.map((t) => t.oceanWindsTotal)),
+    oceanMaps: mean(sim.map((t) => t.oceanMapsTotal)),
+    oceanVP: mean(sim.map((t) => t.oceanVPtotal)),
+    puzzleWinds: mean(sim.map((t) => t.puzzleWindsTotal)),
+    puzzleVP: mean(sim.map((t) => t.puzzleVPtotal)),
+    solved: avgSolved,
+    leftover: mean(sim.map((t) => t.leftoverWinds)),
+  };
+
+  const tt = { contentStyle: { background: "#0d2a36", border: "1px solid #1f4a5a", fontFamily: "JetBrains Mono", fontSize: 12 } };
 
   return (
     <>
       <div className="panel">
         <div className="ph"><span className="num">Σ</span><h2>{L.sTitle}</h2><div style={{ flex: 1 }} /><button className="btn" onClick={() => setRunSeed((s) => s + 1)}>{L.sRun}</button></div>
-        <p className="note" style={{ marginBottom: 14 }}>{L.sDesc(eco.numTeams, eco.maxTurns, eco.movesPerTurn)}</p>
+        <p className="note" style={{ marginBottom: 14 }}>{L.sDesc(eco.numTeams, eco.turnsPerGame, eco.tilesPerTurn)}</p>
         <div className="kpi">
           <div className="kpibox"><div className="k">{L.kAvgVP}</div><div className="v">{avgVP.toFixed(1)}</div></div>
           <div className="kpibox"><div className="k">{L.kAvgSolved}</div><div className="v">{avgSolved.toFixed(1)}</div></div>
-          <div className="kpibox"><div className="k">{L.kAvgValue}</div><div className="v">{avgValue.toFixed(0)}</div></div>
+          <div className="kpibox"><div className="k">{L.sCascade}</div><div className="v">{avgCascade.toFixed(1)}</div></div>
           <div className="kpibox"><div className="k">{L.kFair}</div><div className="v">{fairness === Infinity ? "∞" : fairness.toFixed(2) + "×"}</div></div>
         </div>
         {fairness !== Infinity && (fairness > 2
@@ -678,7 +827,7 @@ function StatsTab({ settings, eco, pool, L }) {
             <CartesianGrid stroke="#1f4a5a" strokeDasharray="2 4" />
             <XAxis dataKey="name" stroke="#b7ad94" fontSize={11} />
             <YAxis stroke="#b7ad94" fontSize={11} />
-            <Tooltip contentStyle={{ background: "#0d2a36", border: "1px solid #1f4a5a", fontFamily: "JetBrains Mono", fontSize: 12 }} />
+            <Tooltip {...tt} />
             <ReferenceLine y={avgVP} stroke="#d4a73c" strokeDasharray="4 4" label={{ value: "avg", fill: "#d4a73c", fontSize: 10, position: "right" }} />
             <Bar dataKey="vp" radius={[4, 4, 0, 0]}>
               {sortedTeams.map((t, i) => <Cell key={i} fill={i === sortedTeams.length - 1 ? "#d4a73c" : "#5fc9d6"} />)}
@@ -695,10 +844,56 @@ function StatsTab({ settings, eco, pool, L }) {
             <CartesianGrid stroke="#1f4a5a" strokeDasharray="2 4" />
             <XAxis dataKey="turn" stroke="#b7ad94" fontSize={11} label={{ value: L.sProgX, position: "insideBottom", offset: -2, fill: "#b7ad94", fontSize: 11 }} />
             <YAxis stroke="#b7ad94" fontSize={11} />
-            <Tooltip contentStyle={{ background: "#0d2a36", border: "1px solid #1f4a5a", fontFamily: "JetBrains Mono", fontSize: 12 }} />
+            <Tooltip {...tt} />
             <Line type="monotone" dataKey="vp" stroke="#5fc9d6" strokeWidth={2.5} dot={{ r: 2 }} />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      <div className="panel">
+        <div className="ph"><span className="num">C</span><h2>{L.sEcoSummaryTitle}</h2></div>
+        <table>
+          <thead><tr><th>Source</th><th>{L.thWinds}</th><th>{L.thMaps}</th><th>{L.thVP}</th></tr></thead>
+          <tbody>
+            <tr><td>Ocean</td><td className="mono">{ecoSummary.oceanWinds.toFixed(1)}</td><td className="mono">{ecoSummary.oceanMaps.toFixed(1)}</td><td className="mono">{ecoSummary.oceanVP.toFixed(1)}</td></tr>
+            <tr><td>Puzzles</td><td className="mono">{ecoSummary.puzzleWinds.toFixed(1)}</td><td className="mono">—</td><td className="mono">{ecoSummary.puzzleVP.toFixed(1)}</td></tr>
+            <tr style={{ borderTop: "2px solid var(--line)" }}>
+              <td style={{ color: "var(--brass)", fontWeight: 600 }}>Total</td>
+              <td className="mono" style={{ color: "var(--foam)" }}>{(ecoSummary.oceanWinds + ecoSummary.puzzleWinds).toFixed(1)}</td>
+              <td className="mono" style={{ color: "var(--foam)" }}>{ecoSummary.oceanMaps.toFixed(1)}</td>
+              <td className="mono" style={{ color: "var(--brass)", fontWeight: 600 }}>{(ecoSummary.oceanVP + ecoSummary.puzzleVP).toFixed(1)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="kpi" style={{ marginTop: 12 }}>
+          <div className="kpibox"><div className="k">{L.kAvgSolved}</div><div className="v">{ecoSummary.solved.toFixed(1)}</div></div>
+          <div className="kpibox"><div className="k">{L.kLeftover}</div><div className="v">{ecoSummary.leftover.toFixed(1)}</div></div>
+        </div>
+      </div>
+
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div className="panel" style={{ flex: 1, minWidth: 280 }}>
+          <div className="ph"><span className="num">D</span><h2>{L.sWindScarcity}</h2></div>
+          <div className="kpi" style={{ marginBottom: 10 }}>
+            <div className="kpibox"><div className="k">{L.sWindScarcity}</div><div className="v">{stuckPct}%</div></div>
+          </div>
+          <p className="note">{L.sWindStuckDesc(stuckPct)}</p>
+          {stuckPct > 30 && <div className="warn" style={{ marginTop: 8 }}>⚠ High scarcity — consider more jokers, bigger map-split weights on smaller atolls, or more tiles per turn.</div>}
+        </div>
+
+        <div className="panel" style={{ flex: 2, minWidth: 300 }}>
+          <div className="ph"><span className="num">E</span><h2>{L.sMapBacklogTitle}</h2></div>
+          <p className="note" style={{ marginBottom: 10 }}>{L.sMapBacklogDesc}</p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={backlog} margin={{ top: 8, right: 18, bottom: 16, left: -14 }}>
+              <CartesianGrid stroke="#1f4a5a" strokeDasharray="2 4" />
+              <XAxis dataKey="turn" stroke="#b7ad94" fontSize={11} label={{ value: L.sMapBacklogX, position: "insideBottom", offset: -4, fill: "#b7ad94", fontSize: 11 }} />
+              <YAxis stroke="#b7ad94" fontSize={11} label={{ value: L.sMapBacklogY, angle: -90, position: "insideLeft", offset: 14, fill: "#b7ad94", fontSize: 10 }} />
+              <Tooltip {...tt} />
+              <Line type="monotone" dataKey="held" stroke="#e8623d" strokeWidth={2.5} dot={{ r: 2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </>
   );
@@ -753,10 +948,18 @@ export default function App() {
   const [lang, setLang] = useState("pl");
   const [settings, setSettings] = useState({ sizes: [5, 6, 7], shallows: false, jokers: true });
   const [eco, setEco] = useState({
-    windValue: 1, atollMapValue: 4, vpValue: 10,
-    tiers: [{ winds: 2, mapChance: 0.25, vp: 0 }, { winds: 3, mapChance: 0.4, vp: 1 }, { winds: 4, mapChance: 0.5, vp: 2 }],
-    oceanTierWeights: [3, 2, 1], sizeTier: { 5: 0, 6: 1, 7: 2, 8: 2 },
-    movesPerTurn: 3, maxTurns: 12, numTeams: 12,
+    table: DEFAULT_TABLE,
+    tilesPerTurn: 3, turnsPerGame: 10, numTeams: 12,
+    oceanBaseMin: 1, oceanBaseMax: 6,
+    dayBonusSchedule: [
+      { upToDay: 4, bonus: 0 },
+      { upToDay: 8, bonus: 2 },
+      { upToDay: 10, bonus: 4 },
+    ],
+    puzzleBaseRows: { 5: 5, 6: 8, 7: 11, 8: 13 },
+    mapStackSplit: { 5: 50, 6: 30, 7: 20, 8: 0 },
+    submissionCap: 2,
+    promotion: 0,
   });
   const pool = useMemo(() => { setSeed(424242); return buildPool(settings.sizes, settings.shallows, 30); }, [settings.sizes, settings.shallows]);
   const L = STR[lang];
@@ -777,7 +980,7 @@ export default function App() {
         </div>
         {tab === "rules" && <RulesTab settings={settings} setSettings={setSettings} L={L} />}
         {tab === "economy" && <EconomyTab eco={eco} setEco={setEco} settings={settings} L={L} />}
-        {tab === "play" && <PlayTab key={lang + JSON.stringify(settings.sizes) + eco.movesPerTurn + eco.maxTurns} settings={settings} eco={eco} pool={pool} L={L} />}
+        {tab === "play" && <PlayTab key={lang + JSON.stringify(settings.sizes) + settings.shallows + eco.tilesPerTurn + eco.turnsPerGame} settings={settings} eco={eco} pool={pool} L={L} />}
         {tab === "stats" && <StatsTab settings={settings} eco={eco} pool={pool} L={L} />}
       </div>
     </div>
