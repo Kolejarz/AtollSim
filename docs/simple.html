@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Na Ratunek! — Zasady gry</title>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700&family=Mulish:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -15,12 +15,14 @@
     --foam: #e4f5fb;
     --coral: #f4845f;
     --sun: #fbbf24;
+    --sand: #e8cf94;
+    --sand-deep: #d4b266;
     --text: #1e3a4f;
     --text-light: #4a7080;
   }
 
   body {
-    font-family: 'Nunito', sans-serif;
+    font-family: 'Mulish', sans-serif;
     background: var(--foam);
     color: var(--text);
     min-height: 100vh;
@@ -42,7 +44,7 @@
     border-radius: 50% 50% 0 0;
   }
   .header h1 {
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-weight: 700;
     font-size: clamp(40px, 7vw, 64px);
     color: #fff;
@@ -64,11 +66,32 @@
     position: relative; z-index: 1;
   }
 
+  /* ===== SECTION TITLES ===== */
+  .section-title {
+    display: flex; align-items: center; gap: 12px;
+    margin: 34px 4px 16px;
+    font-family: 'Baloo 2', sans-serif;
+    font-weight: 700;
+    font-size: clamp(24px, 4.5vw, 30px);
+    color: var(--ocean-deep);
+  }
+  .section-title:first-of-type { margin-top: 8px; }
+  .section-title .sec-num {
+    flex-shrink: 0;
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(140deg, var(--ocean-mid), var(--ocean-bright));
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+    box-shadow: 0 3px 8px rgba(11,61,92,0.18);
+  }
+
   .card {
     background: #fff;
     border-radius: 16px;
     padding: 28px 28px 24px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
     box-shadow: 0 2px 12px rgba(11,61,92,0.07);
     position: relative; overflow: hidden;
   }
@@ -83,6 +106,7 @@
   .card.ocean::before { background: var(--ocean-bright); }
   .card.loot::before { background: var(--sun); }
   .card.atoll::before { background: #34d399; }
+  .card.reward::before { background: var(--coral); }
   .card.rules::before { background: var(--ocean-mid); }
 
   .card-header {
@@ -90,7 +114,7 @@
   }
   .card-header .icon { font-size: 28px; line-height: 1; }
   .card-header h2 {
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-weight: 600; font-size: 22px; color: var(--ocean-deep);
   }
   .card p { font-size: 16px; line-height: 1.65; font-weight: 500; }
@@ -106,11 +130,11 @@
 
   .flow {
     display: flex; align-items: center; justify-content: center;
-    gap: 6px; margin: 20px 0 16px; flex-wrap: wrap;
+    gap: 6px; margin: 20px 0 8px; flex-wrap: wrap;
   }
   .flow-step {
     display: flex; flex-direction: column; align-items: center; gap: 4px;
-    background: var(--foam); border-radius: 12px; padding: 12px 14px; min-width: 90px;
+    background: var(--foam); border-radius: 12px; padding: 12px 14px; min-width: 86px;
   }
   .flow-step .step-icon { font-size: 26px; }
   .flow-step .step-label {
@@ -133,12 +157,48 @@
 
   /* ===== PUZZLE WIDGET ===== */
   .puzzle-wrap {
-    margin: 20px 0 10px;
+    margin: 20px 0 6px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 14px;
   }
+
+  .tier-banner {
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ocean-deep);
+    background: var(--foam);
+    border-radius: 10px;
+    padding: 8px 16px;
+    text-align: center;
+  }
+
+  .size-selector { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .size-btn {
+    border: 2px solid #cfe6f0;
+    background: #fff;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ocean-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none; -webkit-user-select: none;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .size-btn small { display: block; font-size: 10px; font-weight: 700; opacity: 0.7; margin-top: 2px; }
+  .size-btn:hover { border-color: var(--ocean-bright); }
+  .size-btn.active {
+    background: var(--ocean-mid);
+    border-color: var(--ocean-mid);
+    color: #fff;
+  }
+  .size-btn.active small { opacity: 0.9; }
 
   .puzzle-frame {
     background: #5a3e28;
@@ -156,37 +216,48 @@
   }
 
   .puzzle-cell {
-    width: 48px; height: 48px;
     background: #5cb8e0;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px;
     position: relative;
     transition: background 0.15s;
   }
 
-  .puzzle-cell.obstacle {
-    font-size: 26px;
+  .puzzle-cell.shoal {
+    background: var(--sand);
+    background-image: radial-gradient(var(--sand-deep) 1.4px, transparent 1.6px);
+    background-size: 9px 9px;
   }
 
-  .puzzle-cell.player {
-    font-size: 26px;
-    z-index: 2;
-  }
+  .puzzle-cell.player { z-index: 2; }
 
   .puzzle-cell.goal-marker {
-    font-size: 22px;
     font-weight: 800;
     color: #e74c6e;
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
   }
 
-  .puzzle-cell.player.won {
-    animation: pulse 0.5s ease 3;
-  }
-
+  .puzzle-cell.player.won { animation: pulse 0.5s ease 3; }
   @keyframes pulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.25); }
+  }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 16px;
+    justify-content: center;
+    font-size: 13px; font-weight: 600; color: var(--text-light);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+  }
+  .legend .swatch.water { background: #5cb8e0; }
+  .legend .swatch.shoal {
+    background: var(--sand);
+    background-image: radial-gradient(var(--sand-deep) 1.2px, transparent 1.4px);
+    background-size: 7px 7px;
   }
 
   .puzzle-controls {
@@ -196,10 +267,7 @@
     gap: 4px;
   }
 
-  .puzzle-controls-row {
-    display: flex;
-    gap: 4px;
-  }
+  .puzzle-controls-row { display: flex; gap: 4px; }
 
   .wind-btn {
     width: 52px; height: 44px;
@@ -207,7 +275,7 @@
     border-radius: 8px;
     background: var(--ocean-mid);
     color: #fff;
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -216,16 +284,18 @@
     justify-content: center;
     gap: 3px;
     transition: background 0.15s, transform 0.1s;
-    user-select: none;
-    -webkit-user-select: none;
+    user-select: none; -webkit-user-select: none;
   }
   .wind-btn:hover { background: var(--ocean-deep); }
   .wind-btn:active { transform: scale(0.94); }
   .wind-btn .arrow { font-size: 16px; }
-  .wind-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-    transform: none;
+  .wind-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+  .joker-note {
+    font-size: 12px; font-weight: 700; color: var(--coral);
+    background: rgba(244,132,95,0.1);
+    border-radius: 8px; padding: 4px 10px;
+    margin-top: 2px;
   }
 
   .puzzle-hud {
@@ -237,7 +307,7 @@
   }
 
   .move-counter {
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-size: 16px;
     font-weight: 600;
     color: var(--ocean-deep);
@@ -256,30 +326,21 @@
     border: none;
     border-radius: 8px;
     padding: 6px 14px;
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s;
-    user-select: none;
-    -webkit-user-select: none;
+    user-select: none; -webkit-user-select: none;
   }
   .hud-btn:active { transform: scale(0.95); }
-
-  .hud-btn.reset {
-    background: #e0e7ec;
-    color: var(--ocean-deep);
-  }
+  .hud-btn.reset { background: #e0e7ec; color: var(--ocean-deep); }
   .hud-btn.reset:hover { background: #cdd6dc; }
-
-  .hud-btn.newmap {
-    background: var(--coral);
-    color: #fff;
-  }
+  .hud-btn.newmap { background: var(--coral); color: #fff; }
   .hud-btn.newmap:hover { background: #d9634a; }
 
   .win-msg {
-    font-family: 'Fredoka', sans-serif;
+    font-family: 'Baloo 2', sans-serif;
     font-size: 18px;
     font-weight: 700;
     color: #34d399;
@@ -292,13 +353,6 @@
     color: var(--text-light);
     font-weight: 600;
     text-align: center;
-  }
-
-  @media (max-width: 420px) {
-    .puzzle-cell { width: 40px; height: 40px; font-size: 20px; }
-    .puzzle-cell.obstacle { font-size: 22px; }
-    .puzzle-cell.player { font-size: 22px; }
-    .puzzle-cell.goal-marker { font-size: 18px; }
   }
 
   @media print {
@@ -318,37 +372,78 @@
 
 <div class="content">
 
+  <!-- ===================== SEKCJA 1 ===================== -->
+  <div class="section-title"><span class="sec-num">1</span> Ogólne założenia gry</div>
+
   <div class="card goal">
     <div class="card-header"><span class="icon">🎯</span><h2>Cel gry</h2></div>
-    <p>Wasze załogi wypływają na ocean, żeby uratować jak najwięcej zwierząt! Każde uratowane zwierzę to punkty. Na koniec obozu wygrywa załoga z największą liczbą punktów.</p>
+    <p>Pomagacie Noemu odnaleźć brakujące zwierzęta i zabrać je na Arkę! Wasze załogi wypływają na ocean, żeby uratować ich jak najwięcej — każde uratowane zwierzę to <strong>punkty zwycięstwa</strong>. Punkty zdobywacie pływając po oceanie i rozwiązując zagadki archipelagów. Na koniec obozu wygrywa załoga z największą liczbą punktów.</p>
   </div>
 
   <div class="card start">
     <div class="card-header"><span class="icon">📂</span><h2>Start — Teczka Żeglugi</h2></div>
     <p>Na początku gry każda załoga otrzyma swoją <strong>Teczkę Żeglugi</strong> — znajdziecie w niej wszystko, co potrzebne, żeby ruszyć w morze.</p>
+    <p>Jeszcze przed startem całej gry każda załoga dostaje też swoje <strong>pole startowe</strong> na wielkiej mapie oceanu — to stąd zaczniecie pierwszy rejs.</p>
   </div>
+
+  <!-- ===================== SEKCJA 2 ===================== -->
+  <div class="section-title"><span class="sec-num">2</span> Faza oceanu</div>
 
   <div class="card ocean">
-    <div class="card-header"><span class="icon">🗺️</span><h2>Ocean — codzienny rejs</h2></div>
-    <p>Codziennie rano poznacie kolejność żeglowania. Kiedy nadejdzie wasza kolej, przychodzicie do kapitana portu i <strong>wybieracie pola</strong> na wielkiej mapie oceanu. Odkryte pole znika z mapy — nikt już go nie wybierze.</p>
-  </div>
+    <div class="card-header"><span class="icon">🗺️</span><h2>Codzienny rejs</h2></div>
+    <p>Codziennie rano poznacie kolejność żeglowania. Kiedy nadejdzie wasza kolej, przychodzicie do kapitana portu i <strong>wybieracie kierunek</strong>, w którym ma popłynąć wasz statek — z waszego aktualnego pola.</p>
+    <p>Wtedy <strong>rzut kostką ustala wiatr</strong> — jeśli wieje w wybraną przez was stronę, popłyniecie <strong>dalej niż zwykle</strong>! Po drodze <strong>zbieracie nagrody z każdego odwiedzonego pola</strong>.</p>
+    <p>Na polach kryją się <strong>Wiatry, mapy archipelagów oraz punkty zwycięstwa</strong>. Zdobyte rzeczy od razu trafiają na wasz statek!</p>
 
-  <div class="card loot">
-    <div class="card-header"><span class="icon">📦</span><h2>Co znajdziecie na oceanie?</h2></div>
-    <div class="loot-grid">
-      <div class="loot-item"><span class="loot-icon">🌬️</span><span><strong>Wiatry</strong> — karty ruchu (północ, południe, wschód, zachód) potrzebne do rozwiązywania atoli.</span></div>
-      <div class="loot-item"><span class="loot-icon">🏝️</span><span><strong>Mapy atoli</strong> — zagadki do rozwiązania w wolnym czasie.</span></div>
-      <div class="loot-item"><span class="loot-icon">🐾</span><span><strong>Zwierzęta</strong> — punkty, które trafią od razu na wasz statek!</span></div>
+    <div class="flow">
+      <div class="flow-step"><span class="step-icon">🧭</span><span class="step-label">Wybierasz<br>kierunek</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">🎲</span><span class="step-label">Kostka<br>ustala wiatr</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">💨</span><span class="step-label">Dobry wiatr<br>= dalej</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">📦</span><span class="step-label">Nagroda<br>z pól</span></div>
     </div>
   </div>
 
+  <div class="card loot">
+    <div class="card-header"><span class="icon">📦</span><h2>Co kryją pola oceanu?</h2></div>
+    <div class="loot-grid">
+      <div class="loot-item"><span class="loot-icon">🌬️</span><span><strong>Wiatry</strong> — karty ruchu (północ, południe, wschód, zachód) potrzebne do rozwiązywania archipelagów. Czasem zamiast zwykłego kierunku trafia się <strong>JOKER</strong> — wiatr, który wieje w stronę wybraną przez całą załogę!</span></div>
+      <div class="loot-item"><span class="loot-icon">🏝️</span><span><strong>Mapy archipelagów</strong> — zagadki do rozwiązania w wolnym czasie, w różnych rozmiarach i poziomach trudności.</span></div>
+      <div class="loot-item"><span class="loot-icon">🐾</span><span><strong>Zwierzęta</strong> — punkty zwycięstwa, które od razu trafiają na wasz statek!</span></div>
+      <div class="loot-item"><span class="loot-icon">📌</span><span><strong>Tablice ciekawostek</strong> — z niektórymi uratowanymi zwierzętami dostaniecie planszę z ciekawostką. Wieszacie ją na wspólnej <strong>tablicy‑Arce</strong>, żeby cały obóz mógł poznać interesujące fakty o znalezionych gatunkach.</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== SEKCJA 3 ===================== -->
+  <div class="section-title"><span class="sec-num">3</span> Faza map archipelagów</div>
+
   <div class="card atoll">
-    <div class="card-header"><span class="icon">🧩</span><h2>Atole — jak je rozwiązywać?</h2></div>
-    <p>Atol to mała mapka z przeszkodami. Musicie poprowadzić łódź od startu do celu, używając Wiatrów. Uwaga — łódź płynie prosto aż uderzy w przeszkodę! Nie da się zatrzymać w połowie drogi. Za rozwiązanie atolu czekają cenniejsze nagrody niż te znalezione wprost na oceanie.</p>
+    <div class="card-header"><span class="icon">🧩</span><h2>Archipelagi — jak je rozwiązywać?</h2></div>
+    <p>Archipelag to mała mapka z przeszkodami. Musicie poprowadzić łódź od startu do celu (oznaczonego <strong style="color:#e74c6e">✕</strong>), wydając Wiatry. Uwaga — łódź płynie prosto aż uderzy w <strong>wyspę 🏝️</strong> albo dopłynie do krawędzi! Nie da się zatrzymać w połowie drogi… chyba że napotka <strong>mieliznę</strong> — na niej statek osiada i zatrzymuje się od razu.</p>
+    <p><strong>Rozwiązanie</strong> mapy archipelagu polega na przyklejeniu na nią odpowiednich Wiatrów (czyli „wydaniu" ich — te karty nie wracają już do załogi) i przyniesieniu gotowej mapy w następnej turze przy mapie oceanu. Z <strong>JOKERA</strong> skorzystacie, gdy zabraknie wam wiatru w potrzebną stronę — sami wybieracie jego kierunek.</p>
+    <p>Archipelagi bywają różnej wielkości — od 5×5 do 8×8. <strong>Im większy archipelag, tym większa nagroda</strong>, ale i więcej Wiatrów trzeba na jego przepłynięcie. Wypróbujcie poniżej różne rozmiary:</p>
 
     <div class="puzzle-wrap" id="puzzleWrap">
+      <div class="tier-banner" id="tierBanner"></div>
+
+      <div class="size-selector" id="sizeSelector">
+        <button class="size-btn" data-size="5">5×5<small>łatwy</small></button>
+        <button class="size-btn" data-size="6">6×6<small>średni</small></button>
+        <button class="size-btn" data-size="7">7×7<small>trudny</small></button>
+        <button class="size-btn" data-size="8">8×8<small>ekspert</small></button>
+      </div>
+
       <div class="puzzle-frame">
         <div class="puzzle-grid" id="puzzleGrid"></div>
+      </div>
+
+      <div class="legend">
+        <span class="legend-item"><span class="swatch">⛵</span> statek</span>
+        <span class="legend-item"><span class="swatch">🏝️</span> wyspa — omijasz</span>
+        <span class="legend-item"><span class="swatch shoal"></span> mielizna — tu staniesz</span>
+        <span class="legend-item"><span class="swatch" style="color:#e74c6e;font-weight:800">✕</span> cel</span>
       </div>
 
       <div class="puzzle-controls">
@@ -362,10 +457,11 @@
           <button class="wind-btn" data-dir="S" title="Południe"><span class="arrow">▼</span> Pd</button>
           <button class="wind-btn" data-dir="E" title="Wschód">Wch <span class="arrow">►</span></button>
         </div>
+        <div class="joker-note">🃏 W tej wersji testujesz dowolny kierunek — w prawdziwej grze JOKER daje wam taki wybór!</div>
       </div>
 
       <div class="puzzle-hud">
-        <div class="move-counter">🌬️ Ruchy: <span class="num" id="moveCount">0</span></div>
+        <div class="move-counter">🌬️ Wydane Wiatry: <span class="num" id="moveCount">0</span></div>
         <button class="hud-btn reset" id="btnReset">↩ Reset</button>
         <button class="hud-btn newmap" id="btnNew">🏝️ Nowa mapa</button>
       </div>
@@ -385,13 +481,28 @@
     </div>
 
     <div class="tip">
-      <p>💡 <strong>Im mniej Wiatrów zużyjecie, tym cenniejsza nagroda!</strong> Szukajcie najkrótszej drogi. Możecie planować i zmieniać przydział Wiatrów między atolami do momentu oddania rozwiązania.</p>
+      <p>💡 <strong>Planujcie tak, żeby wydać jak najmniej Wiatrów!</strong> Im oszczędniej rozwiążecie jedną mapę, tym więcej Wiatrów zostanie wam z tej samej puli. W każdej chwili możecie mieć kilka aktywnych map naraz — rozkładajcie Wiatry między nie aż do momentu oddania rozwiązania.</p>
     </div>
   </div>
 
+  <div class="card reward">
+    <div class="card-header"><span class="icon">🎁</span><h2>Nagrody za rozwiązanie archipelagu</h2></div>
+    <p>Rozwiązany archipelag potrafi sypnąć łupem hojniej niż zwykłe pole oceanu. Możecie zdobyć:</p>
+    <div class="loot-grid">
+      <div class="loot-item"><span class="loot-icon">🌬️</span><span><strong>Jeszcze więcej Wiatrów</strong> — zasilenie wspólnej puli załogi.</span></div>
+      <div class="loot-item"><span class="loot-icon">🏝️</span><span><strong>Kolejne mapy archipelagów</strong> — nowe zagadki do rozwiązania.</span></div>
+      <div class="loot-item"><span class="loot-icon">🐾</span><span><strong>Więcej punktów zwycięstwa</strong> — czyli kolejnych uratowanych zwierząt (a z nimi czasem nowe tablice ciekawostek na Arkę!).</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== SEKCJA 4 ===================== -->
+  <div class="section-title"><span class="sec-num">4</span> Warunki zwycięstwa</div>
+
   <div class="card rules">
-    <div class="card-header"><span class="icon">⚡</span><h2>Ważne zasady</h2></div>
-    <p>Rozwiązane atole możecie oddawać w dowolnym momencie — o ostatnim dniu gry dowiecie się z wyprzedzeniem. Możecie trzymać wiele map atoli jednocześnie i sami decydujecie, który rozwiązać. Wiatry to wspólna pula załogi — zarządzajcie nimi mądrze! 🧠</p>
+    <div class="card-header"><span class="icon">🏆</span><h2>Kto wygrywa?</h2></div>
+    <p>Na koniec obozu wygrywa załoga z <strong>największą liczbą punktów zwycięstwa</strong> (uratowanych zwierząt) zebranych na oceanie i przy archipelagach.</p>
+    <p>W pojedynczym archipelagu warunkiem rozwiązania jest <strong>zatrzymanie się dokładnie na polu celu ✕</strong> — samo przepłynięcie przez nie nie wystarczy, statek musi się na nim zatrzymać.</p>
+    <p>Rozwiązane archipelagi możecie oddawać w dowolnym momencie — o ostatnim dniu gry dowiecie się z wyprzedzeniem. Możecie trzymać wiele map archipelagów jednocześnie i sami decydujecie, który rozwiązać. Wiatry to wspólna pula załogi — zarządzajcie nimi mądrze! 🧠</p>
   </div>
 
 </div>
@@ -400,7 +511,6 @@
 
 <script>
 (function () {
-  const SIZE = 6;
   const DIRS = {
     N: { dr: -1, dc: 0 },
     S: { dr: 1, dc: 0 },
@@ -408,21 +518,35 @@
     E: { dr: 0, dc: 1 },
   };
 
-  let obstacles, start, goal, player, moves, optimalLen, won, animating;
+  // Konfiguracja poziomów trudności wg rozmiaru archipelagu
+  const TIERS = {
+    5: { label: 'łatwy',     min: 2, max: 5,  obs: [2, 4], shoals: [1, 2] },
+    6: { label: 'średni',    min: 3, max: 7,  obs: [3, 5], shoals: [1, 3] },
+    7: { label: 'trudny',    min: 4, max: 9,  obs: [4, 6], shoals: [2, 3] },
+    8: { label: 'ekspercki', min: 5, max: 12, obs: [5, 7], shoals: [2, 4] },
+  };
+
+  let SIZE = 6;
+  let obstacles, shoals, start, goal, player, moves, optimalLen, won, animating;
 
   function key(r, c) { return r * SIZE + c; }
+  function ri(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
 
-  function slide(fromR, fromC, dr, dc, obs) {
+  // Symulacja ruchu: statek płynie prosto aż do krawędzi lub wyspy (zatrzymuje się PRZED nią),
+  // albo wpłynie na mieliznę (zatrzymuje się NA niej).
+  function slide(fromR, fromC, dr, dc, obs, sh) {
     let r = fromR, c = fromC;
     while (true) {
       const nr = r + dr, nc = c + dc;
-      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || obs.has(key(nr, nc))) break;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || obs.has(key(nr, nc))) break; // krawędź lub wyspa
       r = nr; c = nc;
+      if (sh.has(key(r, c))) break; // mielizna — osiadasz
     }
     return { r, c };
   }
 
-  function bfs(s, g, obs) {
+  // BFS po stanach "miejsc zatrzymania" — zwraca najkrótszą sekwencję wiatrów lub null.
+  function bfs(s, g, obs, sh) {
     const sk = key(s.r, s.c), gk = key(g.r, g.c);
     if (sk === gk) return [];
     const visited = new Set([sk]);
@@ -430,10 +554,10 @@
     while (queue.length) {
       const cur = queue.shift();
       for (const [name, { dr, dc }] of Object.entries(DIRS)) {
-        const res = slide(cur.r, cur.c, dr, dc, obs);
-        if (res.r === cur.r && res.c === cur.c) continue;
+        const res = slide(cur.r, cur.c, dr, dc, obs, sh);
+        if (res.r === cur.r && res.c === cur.c) continue; // ruch donikąd
         const rk = key(res.r, res.c);
-        if (rk === gk) return [...cur.path, name];
+        if (rk === gk) return [...cur.path, name]; // zatrzymanie DOKŁADNIE na celu
         if (!visited.has(rk)) {
           visited.add(rk);
           queue.push({ r: res.r, c: res.c, path: [...cur.path, name] });
@@ -443,46 +567,74 @@
     return null;
   }
 
+  // Generowanie mapy dla danego rozmiaru. Gwarantuje rozwiązywalność (akceptuje tylko mapy,
+  // dla których BFS znajdzie poprawną drogę kończącą się zatrzymaniem na celu).
   function generate() {
-    for (let attempt = 0; attempt < 500; attempt++) {
+    const t = TIERS[SIZE];
+    for (let attempt = 0; attempt < 900; attempt++) {
       const obs = new Set();
-      const s = { r: Math.floor(Math.random() * SIZE), c: 0 };
-      const g = { r: Math.floor(Math.random() * SIZE), c: SIZE - 1 };
+      const sh = new Set();
+      const s = { r: ri(0, SIZE - 1), c: 0 };
+      const g = { r: ri(0, SIZE - 1), c: SIZE - 1 };
 
-      const numObs = 4 + Math.floor(Math.random() * 4);
+      const taken = new Set([key(s.r, s.c), key(g.r, g.c)]);
+
+      const numObs = ri(t.obs[0], t.obs[1]);
       for (let i = 0; i < numObs; i++) {
-        let r, c;
-        do {
-          r = Math.floor(Math.random() * SIZE);
-          c = Math.floor(Math.random() * SIZE);
-        } while ((r === s.r && c === s.c) || (r === g.r && c === g.c) || obs.has(key(r, c)));
-        obs.add(key(r, c));
+        let k, r, c, guard = 0;
+        do { r = ri(0, SIZE - 1); c = ri(0, SIZE - 1); k = key(r, c); guard++; }
+        while (taken.has(k) && guard < 60);
+        if (taken.has(k)) continue;
+        taken.add(k); obs.add(k);
       }
 
-      const sol = bfs(s, g, obs);
-      if (sol && sol.length >= 3 && sol.length <= 10) {
-        return { obstacles: obs, start: s, goal: g, optimal: sol.length };
+      const numSh = ri(t.shoals[0], t.shoals[1]);
+      for (let i = 0; i < numSh; i++) {
+        let k, r, c, guard = 0;
+        do { r = ri(0, SIZE - 1); c = ri(0, SIZE - 1); k = key(r, c); guard++; }
+        while (taken.has(k) && guard < 60);
+        if (taken.has(k)) continue;
+        taken.add(k); sh.add(k);
+      }
+
+      const sol = bfs(s, g, obs, sh);
+      if (sol && sol.length >= t.min && sol.length <= t.max) {
+        return { obstacles: obs, shoals: sh, start: s, goal: g, optimal: sol.length };
       }
     }
-    // Fallback: simple known-good puzzle
-    const obs = new Set([key(0, 2), key(1, 4), key(2, 2), key(3, 0), key(4, 1)]);
-    return { obstacles: obs, start: { r: 2, c: 0 }, goal: { r: 4, c: 4 }, optimal: 4 };
+    // Awaryjna mapa (zawsze rozwiązywalna): pusty archipelag, prosto na wschód.
+    const obs = new Set(), sh = new Set();
+    const s = { r: 0, c: 0 }, g = { r: 0, c: SIZE - 1 };
+    const sol = bfs(s, g, obs, sh);
+    return { obstacles: obs, shoals: sh, start: s, goal: g, optimal: sol ? sol.length : 1 };
   }
 
   const gridEl = document.getElementById('puzzleGrid');
   const moveCountEl = document.getElementById('moveCount');
   const winMsgEl = document.getElementById('winMsg');
   const optimalEl = document.getElementById('optimalInfo');
+  const tierBannerEl = document.getElementById('tierBanner');
 
-  gridEl.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+  function cellPx() {
+    const avail = Math.min((window.innerWidth || 400) - 64, 380);
+    return Math.max(28, Math.floor((avail - (SIZE - 1) * 2 - 12) / SIZE));
+  }
 
   function render() {
+    const px = cellPx();
+    const fs = Math.round(px * 0.56);
+    gridEl.style.gridTemplateColumns = `repeat(${SIZE}, ${px}px)`;
     gridEl.innerHTML = '';
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
         const cell = document.createElement('div');
         cell.className = 'puzzle-cell';
+        cell.style.width = px + 'px';
+        cell.style.height = px + 'px';
+        cell.style.fontSize = fs + 'px';
         const k = key(r, c);
+
+        if (shoals.has(k)) cell.classList.add('shoal');
 
         if (player.r === r && player.c === c) {
           cell.classList.add('player');
@@ -492,7 +644,6 @@
           cell.classList.add('goal-marker');
           cell.textContent = '✕';
         } else if (obstacles.has(k)) {
-          cell.classList.add('obstacle');
           cell.textContent = '🏝️';
         }
 
@@ -505,11 +656,10 @@
   function doMove(dir) {
     if (won || animating) return;
     const { dr, dc } = DIRS[dir];
-    const res = slide(player.r, player.c, dr, dc, obstacles);
-    if (res.r === player.r && res.c === player.c) return;
+    const res = slide(player.r, player.c, dr, dc, obstacles, shoals);
+    if (res.r === player.r && res.c === player.c) return; // ruch donikąd
 
     animating = true;
-    // Animate step by step
     const steps = [];
     let r = player.r, c = player.c;
     while (true) {
@@ -517,6 +667,7 @@
       if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || obstacles.has(key(nr, nc))) break;
       r = nr; c = nc;
       steps.push({ r, c });
+      if (shoals.has(key(r, c))) break;
     }
 
     let i = 0;
@@ -537,7 +688,7 @@
           if (moves <= optimalLen) {
             winMsgEl.textContent = '🎉 Idealnie! Najkrótsza droga!';
           } else {
-            winMsgEl.textContent = `🎉 Dotarliście! (Użyto ${moves} Wiatrów, da się w ${optimalLen})`;
+            winMsgEl.textContent = `🎉 Dotarliście! (Wydano ${moves} Wiatrów, da się w ${optimalLen})`;
           }
           setButtons(false);
         }
@@ -550,9 +701,18 @@
     document.querySelectorAll('.wind-btn').forEach(b => b.disabled = !enabled);
   }
 
+  function updateBanner() {
+    const t = TIERS[SIZE];
+    tierBannerEl.textContent = `Archipelag ${SIZE}×${SIZE} — poziom ${t.label}`;
+    document.querySelectorAll('.size-btn').forEach(b => {
+      b.classList.toggle('active', Number(b.dataset.size) === SIZE);
+    });
+  }
+
   function initPuzzle() {
     const p = generate();
     obstacles = p.obstacles;
+    shoals = p.shoals;
     start = p.start;
     goal = p.goal;
     player = { r: start.r, c: start.c };
@@ -562,6 +722,7 @@
     animating = false;
     winMsgEl.textContent = '';
     optimalEl.textContent = `Najkrótsza droga: ${optimalLen} Wiatrów — znajdziecie ją? 🤔`;
+    updateBanner();
     setButtons(true);
     render();
   }
@@ -576,21 +737,29 @@
     render();
   }
 
-  // Wind buttons
+  // Przyciski wiatrów
   document.querySelectorAll('.wind-btn').forEach(btn => {
     btn.addEventListener('click', () => doMove(btn.dataset.dir));
+  });
+
+  // Wybór rozmiaru archipelagu
+  document.querySelectorAll('.size-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      SIZE = Number(btn.dataset.size);
+      initPuzzle();
+    });
   });
 
   document.getElementById('btnReset').addEventListener('click', resetPuzzle);
   document.getElementById('btnNew').addEventListener('click', initPuzzle);
 
-  // Keyboard
+  // Klawiatura
   document.addEventListener('keydown', (e) => {
     const map = { ArrowUp: 'N', ArrowDown: 'S', ArrowLeft: 'W', ArrowRight: 'E' };
     if (map[e.key]) { e.preventDefault(); doMove(map[e.key]); }
   });
 
-  // Touch swipe
+  // Przesunięcie palcem
   let touchStart = null;
   const pw = document.getElementById('puzzleWrap');
   pw.addEventListener('touchstart', (e) => {
@@ -601,14 +770,18 @@
     const dx = e.changedTouches[0].clientX - touchStart.x;
     const dy = e.changedTouches[0].clientY - touchStart.y;
     const absDx = Math.abs(dx), absDy = Math.abs(dy);
-    if (Math.max(absDx, absDy) < 30) return;
-    if (absDx > absDy) {
-      doMove(dx > 0 ? 'E' : 'W');
-    } else {
-      doMove(dy > 0 ? 'S' : 'N');
-    }
+    if (Math.max(absDx, absDy) < 30) { touchStart = null; return; }
+    if (absDx > absDy) doMove(dx > 0 ? 'E' : 'W');
+    else doMove(dy > 0 ? 'S' : 'N');
     touchStart = null;
   }, { passive: true });
+
+  // Przeskalowanie siatki przy zmianie rozmiaru okna
+  let rt;
+  window.addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(render, 120);
+  });
 
   initPuzzle();
 })();
