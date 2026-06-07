@@ -142,11 +142,21 @@ describe("rng / setSeed / randint", () => {
 
 /* --------------------------------------------------------------- lenBand -- */
 describe("lenBand", () => {
-  test("widens with size but never drops below 2", () => {
+  test("defaults widen with size but never drops below 2", () => {
     assert.deepEqual(lenBand(5), [2, 7]);
     assert.deepEqual(lenBand(6), [3, 8]);
     assert.deepEqual(lenBand(7), [4, 9]);
-    assert.deepEqual(lenBand(4), [2, 6]); // max(2, 1) clamps the floor
+    assert.deepEqual(lenBand(4), [2, 6]);
+  });
+  test("uses moveBands config when provided", () => {
+    const bands = { 5: [3, 6], 6: [5, 8], 7: [6, 9] };
+    assert.deepEqual(lenBand(5, bands), [3, 6]);
+    assert.deepEqual(lenBand(6, bands), [5, 8]);
+    assert.deepEqual(lenBand(7, bands), [6, 9]);
+  });
+  test("falls back to formula for unconfigured sizes", () => {
+    const bands = { 5: [3, 6] };
+    assert.deepEqual(lenBand(7, bands), [4, 9]);
   });
 });
 

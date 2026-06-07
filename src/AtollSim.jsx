@@ -407,7 +407,7 @@ function SettingsTab({ settings, setSettings, eco, setEco, L }) {
     if (!window.confirm(L.sResetConfirm)) return;
     setEco({ ...eco, ...{ table: DEFAULT_TABLE, tilesPerTurn: 3, turnsPerGame: 10, numTeams: 12, oceanBaseMin: 1, oceanBaseMax: 6,
       dayBonusSchedule: [{ upToDay: 4, bonus: 0 }, { upToDay: 8, bonus: 2 }, { upToDay: 10, bonus: 4 }],
-      puzzleBaseRows: { 5: 5, 6: 8, 7: 11, 8: 13 }, mapStackSplit: { 5: 50, 6: 30, 7: 20, 8: 0 }, submissionCap: 2, promotion: 0 } });
+      puzzleBaseRows: { 5: 5, 6: 8, 7: 11, 8: 13 }, puzzleMoveBands: { 5: [3, 6], 6: [5, 8], 7: [6, 9], 8: [7, 10] }, mapStackSplit: { 5: 50, 6: 30, 7: 20, 8: 0 }, submissionCap: 2, promotion: 0 } });
     setSettings({ sizes: [5, 6, 7], shallows: false, jokers: true });
     setWindGen(50); setVpAccel(50); setMapFreq(50); setSlidersCustom(false);
     flash();
@@ -521,6 +521,25 @@ function SettingsTab({ settings, setSettings, eco, setEco, L }) {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase", color: "var(--sand-dim)" }}>{L.ecoMoveBandsTitle}</label>
+              <span className="hint" style={{ display: "block", marginTop: 2, marginBottom: 6 }}>{L.ecoMoveBandsDesc}</span>
+              <div className="row" style={{ marginTop: 6 }}>
+                {settings.sizes.map((sz) => {
+                  const band = eco.puzzleMoveBands?.[sz] ?? [Math.max(2, sz - 3), sz + 2];
+                  return (
+                    <div className="ctrl" key={sz} style={{ marginRight: 12 }}>
+                      <label>{sz}×{sz}</label>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <NumIn value={band[0]} set={(v) => setEco({ ...eco, puzzleMoveBands: { ...eco.puzzleMoveBands, [sz]: [Math.max(1, v), Math.max(Math.max(1, v), band[1])] } })} min={1} max={band[1]} />
+                        <span style={{ color: "var(--sand-dim)" }}>–</span>
+                        <NumIn value={band[1]} set={(v) => setEco({ ...eco, puzzleMoveBands: { ...eco.puzzleMoveBands, [sz]: [band[0], Math.max(band[0], v)] } })} min={band[0]} max={sz * 2} />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div style={{ marginTop: 10 }}>
@@ -643,6 +662,21 @@ function SettingsTab({ settings, setSettings, eco, setEco, L }) {
                   <NumIn value={eco.puzzleBaseRows[sz] ?? 5} set={(v) => setEco({ ...eco, puzzleBaseRows: { ...eco.puzzleBaseRows, [sz]: Math.max(1, v) } })} min={1} max={eco.table.length} />
                 </div>
               ))}
+            </div>
+            <p style={{ marginTop: 12, fontWeight: 600, color: "var(--sand)", fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase" }}>{L.ecoMoveBandsTitle}</p>
+            <p className="note" style={{ marginBottom: 8 }}>{L.ecoMoveBandsDesc}</p>
+            <div className="row">
+              {settings.sizes.map((sz) => {
+                const band = eco.puzzleMoveBands?.[sz] ?? [Math.max(2, sz - 3), sz + 2];
+                return (
+                  <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
+                    <label>{sz}×{sz} min</label>
+                    <NumIn value={band[0]} set={(v) => setEco({ ...eco, puzzleMoveBands: { ...eco.puzzleMoveBands, [sz]: [Math.max(1, v), Math.max(Math.max(1, v), band[1])] } })} min={1} max={sz * 2} />
+                    <label style={{ marginTop: 4 }}>{sz}×{sz} max</label>
+                    <NumIn value={band[1]} set={(v) => setEco({ ...eco, puzzleMoveBands: { ...eco.puzzleMoveBands, [sz]: [band[0], Math.max(band[0], v)] } })} min={band[0]} max={sz * 2} />
+                  </div>
+                );
+              })}
             </div>
             <div style={{ marginTop: 12 }}>
               <Slider label={L.lblSubmitCap} value={eco.submissionCap} set={(v) => setEco({ ...eco, submissionCap: v })} min={1} max={8} />
@@ -1355,6 +1389,7 @@ const DEFAULT_ECO = {
     { upToDay: 10, bonus: 4 },
   ],
   puzzleBaseRows: { 5: 5, 6: 8, 7: 11, 8: 13 },
+  puzzleMoveBands: { 5: [3, 6], 6: [5, 8], 7: [6, 9], 8: [7, 10] },
   mapStackSplit: { 5: 50, 6: 30, 7: 20, 8: 0 },
   submissionCap: 2,
   promotion: 0,
@@ -1370,7 +1405,7 @@ export default function App() {
   const setEco = useCallback((e) => { setEcoState(e); storage.saveEco(e); }, []);
   const setLang2 = (l) => { setLang(l); try { localStorage.setItem("atollsim_lang", l); } catch {} };
 
-  const pool = useMemo(() => { setSeed(424242); return buildPool(settings.sizes, settings.shallows, 30); }, [settings.sizes, settings.shallows]);
+  const pool = useMemo(() => { setSeed(424242); return buildPool(settings.sizes, settings.shallows, 30, eco.puzzleMoveBands); }, [settings.sizes, settings.shallows, eco.puzzleMoveBands]);
   const L = STR[lang];
 
   const TABS = ["rules", "settings", "simulation", "play", "logs"];

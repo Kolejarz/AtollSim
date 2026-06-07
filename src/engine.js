@@ -58,9 +58,12 @@ export function rng() { SEED = (SEED * 1103515245 + 12345) & 0x7fffffff; return 
 export function setSeed(s) { SEED = s >>> 0; }
 export const randint = (a, b) => a + Math.floor(rng() * (b - a + 1));
 export const ISLAND_DENSITY = 0.14, SHALLOW_DENSITY = 0.08, JOKER_WEIGHT = 0.5;
-export const lenBand = (size) => [Math.max(2, size - 3), size + 2];
-export function generatePuzzle(size, shallows) {
-  const [minLen, maxLen] = lenBand(size);
+export const lenBand = (size, moveBands) => {
+  if (moveBands && moveBands[size]) return [moveBands[size][0], moveBands[size][1]];
+  return [Math.max(2, size - 3), size + 2];
+};
+export function generatePuzzle(size, shallows, moveBands) {
+  const [minLen, maxLen] = lenBand(size, moveBands);
   for (let a = 0; a < 400; a++) {
     const grid = Array.from({ length: size }, () => Array(size).fill(0));
     const cells = []; for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) cells.push([r, c]);
@@ -76,9 +79,9 @@ export function generatePuzzle(size, shallows) {
   }
   return null;
 }
-export function buildPool(sizes, shallows, K) {
+export function buildPool(sizes, shallows, K, moveBands) {
   const pool = {};
-  sizes.forEach((sz) => { pool[sz] = []; let g = 0; while (pool[sz].length < K && g < K * 25) { const p = generatePuzzle(sz, shallows); if (p) pool[sz].push(p); g++; } });
+  sizes.forEach((sz) => { pool[sz] = []; let g = 0; while (pool[sz].length < K && g < K * 25) { const p = generatePuzzle(sz, shallows, moveBands); if (p) pool[sz].push(p); g++; } });
   return pool;
 }
 
