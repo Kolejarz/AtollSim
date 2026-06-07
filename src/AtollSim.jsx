@@ -7,6 +7,7 @@ import {
   slide, randint, randType, getDayBonus, lookupRow,
   buildPool, setSeed, simulateTeam, simulateTeamDetailed,
   analyzeBalance, STRATEGIES, DEFAULT_TABLE,
+  generateTableFromSliders, fitSlidersToTable,
 } from "./engine.js";
 import { STR } from "./i18n.js";
 import { storage } from "./storage.js";
@@ -181,6 +182,26 @@ ol.r{margin:8px 0 8px 20px;line-height:1.8;} ol.r li{margin-bottom:6px;}
 /* Save flash */
 .save-flash{font-size:12px;color:var(--kelp);font-style:italic;margin-left:10px;opacity:1;transition:opacity .5s;}
 .save-flash.fade{opacity:0;}
+/* Settings sections */
+.s-section{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px;background:linear-gradient(180deg,var(--hull),var(--deep));box-shadow:0 4px 12px var(--shadow);}
+.s-section-hdr{display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;user-select:none;border-bottom:1px solid transparent;transition:.12s;}
+.s-section.open .s-section-hdr{border-bottom-color:var(--line);}
+.s-section-hdr:hover{background:rgba(255,255,255,.02);}
+.s-section-hdr h3{font-size:15px;font-weight:600;color:var(--sand);margin:0;letter-spacing:.2px;}
+.s-section-hdr .s-arrow{color:var(--sand-dim);font-size:12px;transition:transform .2s;font-family:'JetBrains Mono',monospace;}
+.s-section.open .s-section-hdr .s-arrow{transform:rotate(90deg);}
+.s-section-hdr .s-summary{font-size:12px;color:var(--sand-dim);font-family:'JetBrains Mono',monospace;margin-left:auto;}
+.s-section-body{padding:16px 18px;}
+.s-section:not(.open) .s-section-body{display:none;}
+/* Range slider with labels */
+.range-labeled{display:flex;flex-direction:column;gap:3px;margin-bottom:14px;}
+.range-labeled .range-header{display:flex;justify-content:space-between;align-items:center;}
+.range-labeled .range-header label{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--sand-dim);}
+.range-labeled .range-header .range-val{font-family:'JetBrains Mono',monospace;color:var(--foam);font-size:13px;}
+.range-ends{display:flex;justify-content:space-between;font-size:10.5px;color:var(--sand-dim);font-style:italic;}
+/* Mini table preview */
+.mini-table{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--sand-dim);line-height:1.3;margin-top:6px;}
+.mini-table span{display:inline-block;width:28px;text-align:right;color:var(--foam);}
 `;
 
 /* ============================================================================
@@ -317,36 +338,91 @@ function RulesTab({ L }) {
 /* ============================================================================
    SETTINGS TAB
    ========================================================================== */
+function Section({ title, summary, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={"s-section" + (open ? " open" : "")}>
+      <div className="s-section-hdr" onClick={() => setOpen((o) => !o)}>
+        <span className="s-arrow">▸</span>
+        <h3>{title}</h3>
+        {!open && summary && <span className="s-summary">{summary}</span>}
+      </div>
+      {open && <div className="s-section-body">{children}</div>}
+    </div>
+  );
+}
+
+function RangeLabeled({ label, value, set, min, max, step = 1, leftLabel, rightLabel, fmt }) {
+  return (
+    <div className="range-labeled">
+      <div className="range-header">
+        <label>{label}</label>
+        <span className="range-val">{fmt ? fmt(value) : value}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => set(parseFloat(e.target.value))} />
+      {(leftLabel || rightLabel) && (
+        <div className="range-ends"><span>{leftLabel}</span><span>{rightLabel}</span></div>
+      )}
+    </div>
+  );
+}
+
 function SettingsTab({ settings, setSettings, eco, setEco, L }) {
   const [mode, setMode] = useState("basic");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [showTable, setShowTable] = useState(false);
+
+  const initSliders = useMemo(() => {
+    const fit = fitSlidersToTable(eco.table);
+    return fit || { windGen: 50, vpAccel: 50, mapFreq: 50, matches: false };
+  }, []);
+  const [windGen, setWindGen] = useState(initSliders.windGen);
+  const [vpAccel, setVpAccel] = useState(initSliders.vpAccel);
+  const [mapFreq, setMapFreq] = useState(initSliders.mapFreq);
+  const [slidersCustom, setSlidersCustom] = useState(!initSliders.matches);
 
   const flash = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); };
 
-  const applyEco = (fn) => { setEco(fn(eco)); flash(); };
-  const applySettings = (fn) => { setSettings(fn(settings)); flash(); };
+  const updateTableFromSliders = (wg, va, mf) => {
+    const table = generateTableFromSliders(wg, va, mf);
+    setEco({ ...eco, table });
+    setSlidersCustom(false);
+    flash();
+  };
 
-  const setTableRow = (i, k, v) => setEco({ ...eco, table: eco.table.map((r, j) => j === i ? { ...r, [k]: v } : r) });
-  const addRow = () => setEco({ ...eco, table: [...eco.table, { winds: 1, maps: 0, vp: 0 }] });
-  const removeRow = (i) => { if (eco.table.length <= 1) return; setEco({ ...eco, table: eco.table.filter((_, j) => j !== i) }); };
-  const resetTable = () => { setEco({ ...eco, table: DEFAULT_TABLE }); flash(); };
+  const setTableRow = (i, k, v) => { setEco({ ...eco, table: eco.table.map((r, j) => j === i ? { ...r, [k]: v } : r) }); setSlidersCustom(true); };
+  const addRow = () => { setEco({ ...eco, table: [...eco.table, { winds: 1, maps: 0, vp: 0 }] }); setSlidersCustom(true); };
+  const removeRow = (i) => { if (eco.table.length <= 1) return; setEco({ ...eco, table: eco.table.filter((_, j) => j !== i) }); setSlidersCustom(true); };
+  const resetTable = () => { setEco({ ...eco, table: DEFAULT_TABLE }); setWindGen(50); setVpAccel(50); setMapFreq(50); setSlidersCustom(false); flash(); };
   const setDayBonus = (i, k, v) => setEco({ ...eco, dayBonusSchedule: eco.dayBonusSchedule.map((e, j) => j === i ? { ...e, [k]: v } : e) });
   const addDayBonus = () => setEco({ ...eco, dayBonusSchedule: [...eco.dayBonusSchedule, { upToDay: eco.turnsPerGame, bonus: 0 }] });
   const removeDayBonus = (i) => { if (eco.dayBonusSchedule.length <= 1) return; setEco({ ...eco, dayBonusSchedule: eco.dayBonusSchedule.filter((_, j) => j !== i) }); };
-  const toggleSize = (sz) => applySettings((s) => { const has = s.sizes.includes(sz); const next = has ? s.sizes.filter((x) => x !== sz) : [...s.sizes, sz].sort(); return { ...s, sizes: next.length ? next : s.sizes }; });
+  const toggleSize = (sz) => {
+    const has = settings.sizes.includes(sz);
+    const next = has ? settings.sizes.filter((x) => x !== sz) : [...settings.sizes, sz].sort();
+    if (next.length) { setSettings({ ...settings, sizes: next }); flash(); }
+  };
+  const resetAll = () => {
+    if (!window.confirm(L.sResetConfirm)) return;
+    setEco({ ...eco, ...{ table: DEFAULT_TABLE, tilesPerTurn: 3, turnsPerGame: 10, numTeams: 12, oceanBaseMin: 1, oceanBaseMax: 6,
+      dayBonusSchedule: [{ upToDay: 4, bonus: 0 }, { upToDay: 8, bonus: 2 }, { upToDay: 10, bonus: 4 }],
+      puzzleBaseRows: { 5: 5, 6: 8, 7: 11, 8: 13 }, mapStackSplit: { 5: 50, 6: 30, 7: 20, 8: 0 }, submissionCap: 2, promotion: 0 } });
+    setSettings({ sizes: [5, 6, 7], shallows: false, jokers: true });
+    setWindGen(50); setVpAccel(50); setMapFreq(50); setSlidersCustom(false);
+    flash();
+  };
 
-  function PresetRow({ label, options }) {
-    return (
-      <div className="preset-card">
-        <h3>{label}</h3>
-        <div className="preset-row">
-          {options.map(({ label: l, action }) => (
-            <button key={l} className="btn" onClick={action}>{l}</button>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const totalTiles = eco.turnsPerGame * eco.tilesPerTurn;
+  const gameSummary = `${eco.turnsPerGame}t · ${eco.tilesPerTurn}×tile · ${eco.numTeams} grp`;
+  const oceanSummary = `base ${eco.oceanBaseMin}–${eco.oceanBaseMax} · +${eco.dayBonusSchedule.map((d) => d.bonus).join("/")}`;
+  const puzzleSummary = settings.sizes.map((s) => `${s}×${s}`).join(" ") + (settings.jokers ? " · J" : "") + (settings.shallows ? " · sh" : "");
+  const ecoSummary = slidersCustom ? L.sCustomTable : `w${windGen} · vp${vpAccel} · m${mapFreq}`;
+
+  const previewTable = useMemo(() => {
+    if (slidersCustom) return eco.table;
+    return generateTableFromSliders(windGen, vpAccel, mapFreq);
+  }, [windGen, vpAccel, mapFreq, slidersCustom, eco.table]);
 
   return (
     <>
@@ -361,69 +437,226 @@ function SettingsTab({ settings, setSettings, eco, setEco, L }) {
           <button className={mode === "basic" ? "on" : ""} onClick={() => setMode("basic")}>{L.sBasicMode}</button>
           <button className={mode === "advanced" ? "on" : ""} onClick={() => setMode("advanced")}>{L.sAdvancedMode}</button>
         </div>
+      </div>
 
-        {mode === "basic" && (
-          <>
-            <p className="note" style={{ marginBottom: 18 }}>{L.sBasicDesc}</p>
-            <PresetRow label={L.sGameLength} options={[
-              { label: L.s7days,  action: () => applyEco((e) => ({ ...e, turnsPerGame: 7 })) },
-              { label: L.s10days, action: () => applyEco((e) => ({ ...e, turnsPerGame: 10 })) },
-              { label: L.s14days, action: () => applyEco((e) => ({ ...e, turnsPerGame: 14 })) },
-            ]} />
-            <PresetRow label={L.sTeamCount} options={[4, 8, 12, 16, 20].map((n) => ({
-              label: String(n), action: () => applyEco((e) => ({ ...e, numTeams: n })),
-            }))} />
-            <PresetRow label={L.sWindSupply} options={[
-              { label: L.sWindLess,    action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE.map((r) => ({ ...r, winds: Math.max(1, r.winds - 1) })) })) },
-              { label: L.sWindDefault, action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE })) },
-              { label: L.sWindMore,    action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE.map((r) => ({ ...r, winds: r.winds + 1 })) })) },
-            ]} />
-            <PresetRow label={L.sVPRewards} options={[
-              { label: L.sVPLower,   action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE.map((r) => ({ ...r, vp: Math.max(0, r.vp - 1) })) })) },
-              { label: L.sVPDefault, action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE })) },
-              { label: L.sVPHigher,  action: () => applyEco((e) => ({ ...e, table: DEFAULT_TABLE.map((r) => ({ ...r, vp: r.vp + 1 })) })) },
-            ]} />
-            <PresetRow label={L.sPuzzleMix} options={[
-              { label: L.sPuzzleEasy,     action: () => applyEco((e) => ({ ...e, promotion: 2 })) },
-              { label: L.sPuzzleBalanced, action: () => applyEco((e) => ({ ...e, promotion: 0 })) },
-              { label: L.sPuzzleHard,     action: () => applyEco((e) => ({ ...e, promotion: 0, puzzleBaseRows: { 5: 4, 6: 7, 7: 10, 8: 12 } })) },
-            ]} />
+      {mode === "basic" && (
+        <>
+          {/* GAME SETUP */}
+          <Section title={L.sGameSetupTitle} summary={gameSummary} defaultOpen={true}>
+            <p className="note" style={{ marginBottom: 14 }}>{L.sGameSetupDesc}</p>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <Slider label={L.lblTurns} value={eco.turnsPerGame} set={(v) => setEco({ ...eco, turnsPerGame: v })} min={4} max={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <Slider label={L.lblTeams} value={eco.numTeams} set={(v) => setEco({ ...eco, numTeams: v })} min={2} max={24} />
+              </div>
+            </div>
+            <div className="preset-row" style={{ marginTop: 4 }}>
+              <button className="btn sm" onClick={() => { setEco({ ...eco, turnsPerGame: 7, dayBonusSchedule: [{ upToDay: 3, bonus: 0 }, { upToDay: 5, bonus: 2 }, { upToDay: 7, bonus: 4 }] }); flash(); }}>{L.sShortCamp}</button>
+              <button className="btn sm" onClick={() => { setEco({ ...eco, turnsPerGame: 10, dayBonusSchedule: [{ upToDay: 4, bonus: 0 }, { upToDay: 8, bonus: 2 }, { upToDay: 10, bonus: 4 }] }); flash(); }}>{L.sStandardCamp}</button>
+              <button className="btn sm" onClick={() => { setEco({ ...eco, turnsPerGame: 14, dayBonusSchedule: [{ upToDay: 5, bonus: 0 }, { upToDay: 10, bonus: 2 }, { upToDay: 14, bonus: 4 }] }); flash(); }}>{L.sLongCamp}</button>
+            </div>
+            <p className="hint" style={{ marginTop: 8 }}>{L.sTotalTiles(totalTiles)}</p>
+          </Section>
 
-            <div className="preset-card">
-              <h3>{L.sPuzzleGenTitle}</h3>
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div className="ctrl">
-                  <label>{L.setSizes}</label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {[5, 6, 7, 8].map((sz) => (
-                      <div key={sz} className={"sizebtn" + (settings.sizes.includes(sz) ? " on" : "")} onClick={() => toggleSize(sz)}>{sz}×{sz}</div>
-                    ))}
-                  </div>
-                </div>
-                <div className="ctrl">
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, textTransform: "none", letterSpacing: 0, cursor: "pointer" }}>
-                    <input type="checkbox" checked={settings.jokers} onChange={(e) => applySettings((s) => ({ ...s, jokers: e.target.checked }))} />
-                    {L.setJokers}
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, textTransform: "none", letterSpacing: 0, cursor: "pointer" }}>
-                    <input type="checkbox" checked={settings.shallows} onChange={(e) => applySettings((s) => ({ ...s, shallows: e.target.checked }))} />
-                    {L.setShallows}
-                  </label>
+          {/* OCEAN */}
+          <Section title={L.sOceanTitle} summary={oceanSummary}>
+            <p className="note" style={{ marginBottom: 14 }}>{L.sOceanDesc}</p>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <Slider label={L.lblTiles} value={eco.tilesPerTurn} set={(v) => setEco({ ...eco, tilesPerTurn: v })} min={1} max={6} />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div className="row">
+                  <div className="ctrl" style={{ marginRight: 16 }}><label>{L.lblOceanBase} min</label><NumIn value={eco.oceanBaseMin} set={(v) => setEco({ ...eco, oceanBaseMin: Math.max(1, v) })} min={1} max={eco.oceanBaseMax} /></div>
+                  <div className="ctrl"><label>max</label><NumIn value={eco.oceanBaseMax} set={(v) => setEco({ ...eco, oceanBaseMax: Math.max(eco.oceanBaseMin, v) })} min={eco.oceanBaseMin} max={20} /></div>
                 </div>
               </div>
             </div>
-          </>
-        )}
+            <p style={{ marginTop: 10, fontWeight: 600, color: "var(--sand)", fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase" }}>{L.rDayBonusTitle}</p>
+            <div className="day-bonus-table" style={{ maxWidth: 400 }}>
+              {eco.dayBonusSchedule.map((d, i) => (
+                <div className="dbt-cell" key={i}>
+                  <div className="dv">+{d.bonus}</div>
+                  <div className="dk">{L.upToDay} {d.upToDay}</div>
+                </div>
+              ))}
+            </div>
+            <div className="preset-row">
+              <button className="btn sm" onClick={() => { setEco({ ...eco, dayBonusSchedule: [{ upToDay: eco.turnsPerGame, bonus: 0 }] }); flash(); }}>{L.sDayBonusPresetFlat}</button>
+              <button className="btn sm" onClick={() => {
+                const t = eco.turnsPerGame;
+                setEco({ ...eco, dayBonusSchedule: [{ upToDay: Math.round(t * 0.4), bonus: 0 }, { upToDay: Math.round(t * 0.8), bonus: 2 }, { upToDay: t, bonus: 4 }] }); flash();
+              }}>{L.sDayBonusPresetRamp}</button>
+              <button className="btn sm" onClick={() => {
+                const t = eco.turnsPerGame;
+                setEco({ ...eco, dayBonusSchedule: [{ upToDay: Math.round(t * 0.3), bonus: 0 }, { upToDay: Math.round(t * 0.6), bonus: 3 }, { upToDay: t, bonus: 6 }] }); flash();
+              }}>{L.sDayBonusPresetSteep}</button>
+            </div>
+          </Section>
 
-        {mode === "advanced" && (
-          <p className="note">{L.sAdvancedIntro}</p>
-        )}
-      </div>
+          {/* PUZZLES */}
+          <Section title={L.sPuzzlesTitle} summary={puzzleSummary}>
+            <p className="note" style={{ marginBottom: 14 }}>{L.sPuzzlesDesc}</p>
+            <div className="ctrl">
+              <label>{L.setSizes}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[5, 6, 7, 8].map((sz) => (
+                  <div key={sz} className={"sizebtn" + (settings.sizes.includes(sz) ? " on" : "")} onClick={() => toggleSize(sz)}>{sz}×{sz}</div>
+                ))}
+              </div>
+              <span className="hint" style={{ marginTop: 4 }}>{L.setSizesHint}</span>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase", color: "var(--sand-dim)" }}>{L.sMapSplitLabel}</label>
+              <div className="row" style={{ marginTop: 6 }}>
+                {settings.sizes.map((sz) => (
+                  <div className="ctrl" key={sz} style={{ marginRight: 12 }}>
+                    <label>{sz}×{sz}</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <input type="range" min={0} max={100} value={eco.mapStackSplit[sz] ?? 0} style={{ width: 80 }}
+                        onChange={(e) => setEco({ ...eco, mapStackSplit: { ...eco.mapStackSplit, [sz]: +e.target.value } })} />
+                      <span className="val" style={{ fontFamily: "'JetBrains Mono', monospace", color: "var(--foam)", fontSize: 12 }}>{eco.mapStackSplit[sz] ?? 0}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Slider label={L.lblSubmitCap} value={eco.submissionCap} set={(v) => setEco({ ...eco, submissionCap: v })} min={1} max={8} />
+            </div>
+            <div className="row" style={{ marginTop: 8, gap: 20 }}>
+              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" checked={settings.jokers} onChange={(e) => setSettings({ ...settings, jokers: e.target.checked })} />{L.setJokers}</label></div>
+              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" checked={settings.shallows} onChange={(e) => setSettings({ ...settings, shallows: e.target.checked })} />{L.setShallows}</label></div>
+            </div>
+          </Section>
+
+          {/* ECONOMY BALANCE */}
+          <Section title={L.sEconomyTitle} summary={ecoSummary}>
+            <p className="note" style={{ marginBottom: 14 }}>{L.sEconomyDesc}</p>
+            {slidersCustom && <div className="warn" style={{ marginBottom: 14 }}>{L.sCustomTable}</div>}
+            <RangeLabeled label={L.sWindGenerosity} value={windGen} set={(v) => { setWindGen(v); updateTableFromSliders(v, vpAccel, mapFreq); }}
+              min={0} max={100} leftLabel={L.sWindScarce} rightLabel={L.sWindGenerous} fmt={(v) => `${v}%`} />
+            <RangeLabeled label={L.sVPAcceleration} value={vpAccel} set={(v) => { setVpAccel(v); updateTableFromSliders(windGen, v, mapFreq); }}
+              min={0} max={100} leftLabel={L.sVPFlat} rightLabel={L.sVPSteep} fmt={(v) => `${v}%`} />
+            <RangeLabeled label={L.sMapFrequency} value={mapFreq} set={(v) => { setMapFreq(v); updateTableFromSliders(windGen, vpAccel, v); }}
+              min={0} max={100} leftLabel={L.sMapRare} rightLabel={L.sMapFrequent} fmt={(v) => `${v}%`} />
+            <Slider label={L.lblPromotion} value={eco.promotion} set={(v) => setEco({ ...eco, promotion: v })} min={0} max={4} />
+
+            <div style={{ marginTop: 10 }}>
+              <button className="btn sm ghost" onClick={() => setShowTable((s) => !s)}>
+                {showTable ? L.sHideTable : L.sViewTable}
+              </button>
+            </div>
+            {showTable && (
+              <div style={{ marginTop: 10 }}>
+                <p className="hint" style={{ marginBottom: 8 }}>{L.sTableReadonly}</p>
+                <table>
+                  <thead><tr><th className="mono">{L.thRow}</th><th>{L.thWinds}</th><th>{L.thMaps}</th><th>{L.thVP}</th></tr></thead>
+                  <tbody>
+                    {previewTable.map((row, i) => (
+                      <tr key={i}>
+                        <td className="mono" style={{ color: "var(--brass)", fontWeight: 600 }}>{i + 1}</td>
+                        <td className="mono">{row.winds}</td>
+                        <td className="mono">{row.maps}</td>
+                        <td className="mono">{row.vp}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </>
+      )}
 
       {mode === "advanced" && (
         <>
-          <div className="panel">
-            <div className="ph"><span className="num">A</span><h2>{L.ecoTableTitle}</h2></div>
+          <p className="note" style={{ marginBottom: 14 }}>{L.sAdvancedIntro}</p>
+
+          {/* A: GAME SETUP */}
+          <Section title={`A · ${L.sGameSetupTitle}`} summary={gameSummary} defaultOpen={true}>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTurns} value={eco.turnsPerGame} set={(v) => setEco({ ...eco, turnsPerGame: v })} min={4} max={20} /></div>
+              <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTeams} value={eco.numTeams} set={(v) => setEco({ ...eco, numTeams: v })} min={2} max={24} /></div>
+            </div>
+          </Section>
+
+          {/* B: OCEAN */}
+          <Section title={`B · ${L.sOceanTitle}`} summary={oceanSummary} defaultOpen={true}>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTiles} value={eco.tilesPerTurn} set={(v) => setEco({ ...eco, tilesPerTurn: v })} min={1} max={6} /></div>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div className="row">
+                  <div className="ctrl" style={{ marginRight: 16 }}><label>{L.lblOceanBase} min</label><NumIn value={eco.oceanBaseMin} set={(v) => setEco({ ...eco, oceanBaseMin: Math.max(1, v) })} min={1} max={eco.oceanBaseMax} /></div>
+                  <div className="ctrl"><label>max</label><NumIn value={eco.oceanBaseMax} set={(v) => setEco({ ...eco, oceanBaseMax: Math.max(eco.oceanBaseMin, v) })} min={eco.oceanBaseMin} max={20} /></div>
+                </div>
+              </div>
+            </div>
+            <p style={{ marginTop: 10, fontWeight: 600, color: "var(--sand)", fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase" }}>{L.ecoDayTitle}</p>
+            <p className="note" style={{ marginBottom: 8 }}>{L.ecoDayDesc}</p>
+            <table>
+              <thead><tr><th>{L.upToDay}</th><th>{L.bonusLabel}</th><th></th></tr></thead>
+              <tbody>
+                {eco.dayBonusSchedule.map((e, i) => (
+                  <tr key={i}>
+                    <td><NumIn value={e.upToDay} set={(v) => setDayBonus(i, "upToDay", Math.max(1, v))} min={1} max={eco.turnsPerGame} /></td>
+                    <td>+ <NumIn value={e.bonus} set={(v) => setDayBonus(i, "bonus", Math.max(0, v))} min={0} max={6} /></td>
+                    <td><button className="btn ghost" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => removeDayBonus(i)}>×</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className="btn sm" style={{ marginTop: 8 }} onClick={addDayBonus}>+ {L.lblAddRow}</button>
+          </Section>
+
+          {/* C: PUZZLES */}
+          <Section title={`C · ${L.sPuzzlesTitle}`} summary={puzzleSummary} defaultOpen={true}>
+            <div className="ctrl">
+              <label>{L.setSizes}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[5, 6, 7, 8].map((sz) => (
+                  <div key={sz} className={"sizebtn" + (settings.sizes.includes(sz) ? " on" : "")} onClick={() => toggleSize(sz)}>{sz}×{sz}</div>
+                ))}
+              </div>
+              <span className="hint" style={{ marginTop: 4 }}>{L.setSizesHint}</span>
+            </div>
+            <p style={{ marginTop: 12, fontWeight: 600, color: "var(--sand)", fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase" }}>{L.ecoMapSplitTitle}</p>
+            <p className="note" style={{ marginBottom: 8 }}>{L.ecoMapSplitDesc}</p>
+            <div className="row">
+              {settings.sizes.map((sz) => (
+                <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
+                  <label>{sz}×{sz} %</label>
+                  <NumIn value={eco.mapStackSplit[sz] ?? 0} set={(v) => setEco({ ...eco, mapStackSplit: { ...eco.mapStackSplit, [sz]: Math.max(0, v) } })} min={0} max={100} />
+                </div>
+              ))}
+            </div>
+            <p style={{ marginTop: 12, fontWeight: 600, color: "var(--sand)", fontSize: 12, letterSpacing: ".5px", textTransform: "uppercase" }}>{L.ecoPuzzleTitle}</p>
+            <p className="note" style={{ marginBottom: 8 }}>{L.ecoPuzzleDesc}</p>
+            <div className="row">
+              {settings.sizes.map((sz) => (
+                <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
+                  <label>{sz}×{sz}</label>
+                  <NumIn value={eco.puzzleBaseRows[sz] ?? 5} set={(v) => setEco({ ...eco, puzzleBaseRows: { ...eco.puzzleBaseRows, [sz]: Math.max(1, v) } })} min={1} max={eco.table.length} />
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Slider label={L.lblSubmitCap} value={eco.submissionCap} set={(v) => setEco({ ...eco, submissionCap: v })} min={1} max={8} />
+            </div>
+            <div className="row" style={{ marginTop: 8, gap: 20 }}>
+              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" checked={settings.jokers} onChange={(e) => setSettings({ ...settings, jokers: e.target.checked })} />{L.setJokers}</label></div>
+              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
+                <input type="checkbox" checked={settings.shallows} onChange={(e) => setSettings({ ...settings, shallows: e.target.checked })} />{L.setShallows}</label></div>
+            </div>
+          </Section>
+
+          {/* D: REWARD TABLE */}
+          <Section title={`D · ${L.ecoTableTitle}`} defaultOpen={true}>
             <p className="note" style={{ marginBottom: 10 }}>{L.ecoTableDesc}</p>
             <table>
               <thead><tr><th className="mono">{L.thRow}</th><th>{L.thWinds}</th><th>{L.thMaps}</th><th>{L.thVP}</th><th></th></tr></thead>
@@ -440,93 +673,18 @@ function SettingsTab({ settings, setSettings, eco, setEco, L }) {
               </tbody>
             </table>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button className="btn" onClick={addRow}>+ {L.lblAddRow}</button>
-              <button className="btn ghost" onClick={resetTable}>{L.lblResetTable}</button>
+              <button className="btn sm" onClick={addRow}>+ {L.lblAddRow}</button>
+              <button className="btn sm ghost" onClick={resetTable}>{L.lblResetTable}</button>
             </div>
-          </div>
+            <div style={{ marginTop: 14 }}>
+              <Slider label={L.lblPromotion} value={eco.promotion} set={(v) => setEco({ ...eco, promotion: v })} min={0} max={4} />
+            </div>
+          </Section>
 
-          <div className="row" style={{ alignItems: "flex-start" }}>
-            <div className="panel" style={{ flex: 1, minWidth: 260 }}>
-              <div className="ph"><span className="num">B</span><h2>{L.ecoDayTitle}</h2></div>
-              <p className="note" style={{ marginBottom: 10 }}>{L.ecoDayDesc}</p>
-              <table>
-                <thead><tr><th>{L.upToDay}</th><th>{L.bonusLabel}</th><th></th></tr></thead>
-                <tbody>
-                  {eco.dayBonusSchedule.map((e, i) => (
-                    <tr key={i}>
-                      <td><NumIn value={e.upToDay} set={(v) => setDayBonus(i, "upToDay", Math.max(1, v))} min={1} max={eco.turnsPerGame} /></td>
-                      <td>+ <NumIn value={e.bonus} set={(v) => setDayBonus(i, "bonus", Math.max(0, v))} min={0} max={6} /></td>
-                      <td><button className="btn ghost" style={{ padding: "2px 8px", fontSize: 12 }} onClick={() => removeDayBonus(i)}>×</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button className="btn" style={{ marginTop: 8 }} onClick={addDayBonus}>+ {L.lblAddRow}</button>
-            </div>
-            <div className="panel" style={{ flex: 1, minWidth: 260 }}>
-              <div className="ph"><span className="num">C</span><h2>{L.ecoPuzzleTitle}</h2></div>
-              <p className="note" style={{ marginBottom: 12 }}>{L.ecoPuzzleDesc}</p>
-              <div className="row">
-                {settings.sizes.map((sz) => (
-                  <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
-                    <label>{sz}×{sz}</label>
-                    <NumIn value={eco.puzzleBaseRows[sz] ?? 5} set={(v) => setEco({ ...eco, puzzleBaseRows: { ...eco.puzzleBaseRows, [sz]: Math.max(1, v) } })} min={1} max={eco.table.length} />
-                  </div>
-                ))}
-                <div className="ctrl" style={{ marginRight: 16 }}>
-                  <label>{L.lblPromotion}</label>
-                  <NumIn value={eco.promotion} set={(v) => setEco({ ...eco, promotion: Math.max(0, v) })} min={0} max={4} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="row" style={{ alignItems: "flex-start" }}>
-            <div className="panel" style={{ flex: 1, minWidth: 260 }}>
-              <div className="ph"><span className="num">D</span><h2>{L.ecoMapSplitTitle}</h2></div>
-              <p className="note" style={{ marginBottom: 12 }}>{L.ecoMapSplitDesc}</p>
-              <div className="row">
-                {settings.sizes.map((sz) => (
-                  <div className="ctrl" key={sz} style={{ marginRight: 16 }}>
-                    <label>{sz}×{sz} %</label>
-                    <NumIn value={eco.mapStackSplit[sz] ?? 0} set={(v) => setEco({ ...eco, mapStackSplit: { ...eco.mapStackSplit, [sz]: Math.max(0, v) } })} min={0} max={100} />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="panel" style={{ flex: 1, minWidth: 260 }}>
-              <div className="ph"><span className="num">E</span><h2>{L.ecoTurnTitle}</h2></div>
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTiles} value={eco.tilesPerTurn} set={(v) => setEco({ ...eco, tilesPerTurn: v })} min={1} max={6} /></div>
-                <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTurns} value={eco.turnsPerGame} set={(v) => setEco({ ...eco, turnsPerGame: v })} min={4} max={20} /></div>
-                <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblTeams} value={eco.numTeams} set={(v) => setEco({ ...eco, numTeams: v })} min={2} max={24} /></div>
-                <div style={{ flex: 1, minWidth: 180 }}><Slider label={L.lblSubmitCap} value={eco.submissionCap} set={(v) => setEco({ ...eco, submissionCap: v })} min={1} max={8} /></div>
-              </div>
-              <div className="row" style={{ marginTop: 6 }}>
-                <div className="ctrl" style={{ marginRight: 16 }}><label>{L.lblOceanBase} min</label><NumIn value={eco.oceanBaseMin} set={(v) => setEco({ ...eco, oceanBaseMin: Math.max(1, v) })} min={1} max={eco.oceanBaseMax} /></div>
-                <div className="ctrl"><label>max</label><NumIn value={eco.oceanBaseMax} set={(v) => setEco({ ...eco, oceanBaseMax: Math.max(eco.oceanBaseMin, v) })} min={eco.oceanBaseMin} max={20} /></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="ph"><span className="num">F</span><h2>{L.sPuzzleGenTitle}</h2></div>
-            <div className="ctrl">
-              <label>{L.setSizes}</label>
-              <div style={{ display: "flex", gap: 6 }}>
-                {[5, 6, 7, 8].map((sz) => (
-                  <div key={sz} className={"sizebtn" + (settings.sizes.includes(sz) ? " on" : "")} onClick={() => toggleSize(sz)}>{sz}×{sz}</div>
-                ))}
-              </div>
-              <span className="hint" style={{ marginTop: 4 }}>{L.setSizesHint}</span>
-            </div>
-            <div className="row" style={{ marginTop: 8 }}>
-              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
-                <input type="checkbox" checked={settings.shallows} onChange={(e) => setSettings({ ...settings, shallows: e.target.checked })} />{L.setShallows}</label></div>
-              <div className="ctrl"><label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>
-                <input type="checkbox" checked={settings.jokers} onChange={(e) => setSettings({ ...settings, jokers: e.target.checked })} />{L.setJokers}</label></div>
-            </div>
-          </div>
+          {/* E: PRESETS */}
+          <Section title={`E · ${L.sPresetsTitle}`}>
+            <button className="btn danger" onClick={resetAll}>{L.sResetAll}</button>
+          </Section>
         </>
       )}
     </>

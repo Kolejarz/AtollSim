@@ -90,6 +90,59 @@ export const DEFAULT_TABLE = [
   { winds: 5, maps: 1, vp: 4 }, { winds: 5, maps: 0, vp: 5 }, { winds: 6, maps: 1, vp: 6 },
   { winds: 6, maps: 1, vp: 7 },
 ];
+export const BASE_WINDS = DEFAULT_TABLE.map((r) => r.winds);
+export const BASE_VP = DEFAULT_TABLE.map((r) => r.vp);
+export const BASE_MAPS = DEFAULT_TABLE.map((r) => r.maps);
+
+export function generateTableFromSliders(windGen, vpAccel, mapFreq) {
+  const n = DEFAULT_TABLE.length;
+  const wScale = 0.5 + (windGen / 100);
+  const table = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const winds = Math.max(1, Math.round(BASE_WINDS[i] * wScale));
+    const vpBase = BASE_VP[i];
+    let vp;
+    if (vpBase === 0) {
+      vp = 0;
+    } else {
+      const accelFactor = 0.5 + (vpAccel / 100);
+      vp = Math.max(0, Math.round(vpBase * accelFactor));
+    }
+    let maps;
+    if (mapFreq <= 25) {
+      maps = (i === 3 || i === 7 || i === 11) ? 1 : 0;
+    } else if (mapFreq <= 50) {
+      maps = BASE_MAPS[i];
+    } else if (mapFreq <= 75) {
+      maps = (i >= 2 && i % 2 === 1) ? 1 : 0;
+    } else {
+      maps = i >= 2 ? 1 : 0;
+    }
+    table.push({ winds, maps, vp });
+  }
+  return table;
+}
+
+export function fitSlidersToTable(table) {
+  if (table.length !== DEFAULT_TABLE.length) return null;
+  const avgWindRatio = table.reduce((s, r, i) => s + (BASE_WINDS[i] > 0 ? r.winds / BASE_WINDS[i] : 1), 0) / table.length;
+  const windGen = Math.round(Math.max(0, Math.min(100, (avgWindRatio - 0.5) * 100)));
+  const vpRows = table.filter((r, i) => BASE_VP[i] > 0);
+  const baseVpRows = BASE_VP.filter((v) => v > 0);
+  const avgVpRatio = vpRows.length ? vpRows.reduce((s, r, i) => s + r.vp / baseVpRows[i], 0) / vpRows.length : 1;
+  const vpAccel = Math.round(Math.max(0, Math.min(100, (avgVpRatio - 0.5) * 100)));
+  const mapCount = table.reduce((s, r) => s + r.maps, 0);
+  let mapFreq;
+  if (mapCount <= 3) mapFreq = 15;
+  else if (mapCount <= 5) mapFreq = 40;
+  else if (mapCount <= 7) mapFreq = 65;
+  else mapFreq = 90;
+  const generated = generateTableFromSliders(windGen, vpAccel, mapFreq);
+  const matches = generated.every((r, i) => r.winds === table[i].winds && r.maps === table[i].maps && r.vp === table[i].vp);
+  return { windGen, vpAccel, mapFreq, matches };
+}
+
 export function lookupRow(table, row) { return table[Math.min(Math.max(row - 1, 0), table.length - 1)]; }
 export function getDayBonus(schedule, turn) {
   for (const { upToDay, bonus } of schedule) if (turn <= upToDay) return bonus;
