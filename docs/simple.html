@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Na Ratunek! — Zasady gry</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --ocean-deep: #0b3d5c;
+    --ocean-mid: #1272a3;
+    --ocean-bright: #18a4d4;
+    --foam: #e4f5fb;
+    --coral: #f4845f;
+    --sun: #fbbf24;
+    --text: #1e3a4f;
+    --text-light: #4a7080;
+  }
+
+  body {
+    font-family: 'Nunito', sans-serif;
+    background: var(--foam);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .header {
+    background: linear-gradient(170deg, var(--ocean-deep) 0%, var(--ocean-mid) 50%, var(--ocean-bright) 100%);
+    padding: 48px 32px 72px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: -2px; left: -5%;
+    width: 110%; height: 48px;
+    background: var(--foam);
+    border-radius: 50% 50% 0 0;
+  }
+  .header h1 {
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 700;
+    font-size: clamp(40px, 7vw, 64px);
+    color: #fff;
+    text-shadow: 0 3px 12px rgba(0,0,0,0.25);
+    letter-spacing: 1px; line-height: 1.1;
+  }
+  .header h1 .sos { color: var(--sun); }
+  .header .tagline {
+    margin-top: 10px;
+    font-size: clamp(14px, 2.5vw, 19px);
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+  }
+
+  .content {
+    max-width: 680px;
+    margin: -16px auto 0;
+    padding: 0 24px 48px;
+    position: relative; z-index: 1;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px 28px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(11,61,92,0.07);
+    position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 5px; height: 100%;
+  }
+  .card.goal::before { background: var(--coral); }
+  .card.start::before { background: #a78bfa; }
+  .card.ocean::before { background: var(--ocean-bright); }
+  .card.loot::before { background: var(--sun); }
+  .card.atoll::before { background: #34d399; }
+  .card.rules::before { background: var(--ocean-mid); }
+
+  .card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  }
+  .card-header .icon { font-size: 28px; line-height: 1; }
+  .card-header h2 {
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 600; font-size: 22px; color: var(--ocean-deep);
+  }
+  .card p { font-size: 16px; line-height: 1.65; font-weight: 500; }
+  .card p + p { margin-top: 10px; }
+  .card strong { color: var(--ocean-deep); font-weight: 700; }
+
+  .loot-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .loot-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 16px; line-height: 1.55; font-weight: 500;
+  }
+  .loot-item .loot-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+
+  .flow {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; margin: 20px 0 16px; flex-wrap: wrap;
+  }
+  .flow-step {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: var(--foam); border-radius: 12px; padding: 12px 14px; min-width: 90px;
+  }
+  .flow-step .step-icon { font-size: 26px; }
+  .flow-step .step-label {
+    font-size: 12px; font-weight: 700; color: var(--ocean-mid);
+    text-align: center; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .flow-arrow { font-size: 20px; color: var(--ocean-bright); font-weight: 700; }
+
+  .tip {
+    background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(244,132,95,0.08));
+    border-radius: 12px; padding: 14px 18px; margin-top: 14px;
+    border: 1.5px dashed var(--sun);
+  }
+  .tip p { font-size: 15px; line-height: 1.55; }
+
+  .footer {
+    text-align: center; padding: 12px 24px 32px;
+    font-size: 13px; color: var(--text-light); font-weight: 600;
+  }
+
+  /* ===== PUZZLE WIDGET ===== */
+  .puzzle-wrap {
+    margin: 20px 0 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .puzzle-frame {
+    background: #5a3e28;
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+
+  .puzzle-grid {
+    display: grid;
+    gap: 2px;
+    background: #4aacd0;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .puzzle-cell {
+    width: 48px; height: 48px;
+    background: #5cb8e0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    position: relative;
+    transition: background 0.15s;
+  }
+
+  .puzzle-cell.obstacle {
+    font-size: 26px;
+  }
+
+  .puzzle-cell.player {
+    font-size: 26px;
+    z-index: 2;
+  }
+
+  .puzzle-cell.goal-marker {
+    font-size: 22px;
+    font-weight: 800;
+    color: #e74c6e;
+    font-family: 'Fredoka', sans-serif;
+  }
+
+  .puzzle-cell.player.won {
+    animation: pulse 0.5s ease 3;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+  }
+
+  .puzzle-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .puzzle-controls-row {
+    display: flex;
+    gap: 4px;
+  }
+
+  .wind-btn {
+    width: 52px; height: 44px;
+    border: none;
+    border-radius: 8px;
+    background: var(--ocean-mid);
+    color: #fff;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    transition: background 0.15s, transform 0.1s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .wind-btn:hover { background: var(--ocean-deep); }
+  .wind-btn:active { transform: scale(0.94); }
+  .wind-btn .arrow { font-size: 16px; }
+  .wind-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    transform: none;
+  }
+
+  .puzzle-hud {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .move-counter {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ocean-deep);
+  }
+  .move-counter .num {
+    display: inline-block;
+    background: var(--foam);
+    border-radius: 6px;
+    padding: 2px 10px;
+    min-width: 32px;
+    text-align: center;
+    margin-left: 2px;
+  }
+
+  .hud-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .hud-btn:active { transform: scale(0.95); }
+
+  .hud-btn.reset {
+    background: #e0e7ec;
+    color: var(--ocean-deep);
+  }
+  .hud-btn.reset:hover { background: #cdd6dc; }
+
+  .hud-btn.newmap {
+    background: var(--coral);
+    color: #fff;
+  }
+  .hud-btn.newmap:hover { background: #d9634a; }
+
+  .win-msg {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #34d399;
+    text-align: center;
+    min-height: 26px;
+  }
+
+  .optimal-info {
+    font-size: 13px;
+    color: var(--text-light);
+    font-weight: 600;
+    text-align: center;
+  }
+
+  @media (max-width: 420px) {
+    .puzzle-cell { width: 40px; height: 40px; font-size: 20px; }
+    .puzzle-cell.obstacle { font-size: 22px; }
+    .puzzle-cell.player { font-size: 22px; }
+    .puzzle-cell.goal-marker { font-size: 18px; }
+  }
+
+  @media print {
+    body { background: #fff; }
+    .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+    .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .puzzle-wrap { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span class="sos">🆘</span> Na Ratunek!</h1>
+  <div class="tagline">Wielka wyprawa ratunkowa po oceanach świata</div>
+</div>
+
+<div class="content">
+
+  <div class="card goal">
+    <div class="card-header"><span class="icon">🎯</span><h2>Cel gry</h2></div>
+    <p>Wasze załogi wypływają na ocean, żeby uratować jak najwięcej zwierząt! Każde uratowane zwierzę to punkty. Na koniec obozu wygrywa załoga z największą liczbą punktów.</p>
+  </div>
+
+  <div class="card start">
+    <div class="card-header"><span class="icon">📂</span><h2>Start — Teczka Żeglugi</h2></div>
+    <p>Na początku gry każda załoga otrzyma swoją <strong>Teczkę Żeglugi</strong> — znajdziecie w niej wszystko, co potrzebne, żeby ruszyć w morze.</p>
+  </div>
+
+  <div class="card ocean">
+    <div class="card-header"><span class="icon">🗺️</span><h2>Ocean — codzienny rejs</h2></div>
+    <p>Codziennie rano poznacie kolejność żeglowania. Kiedy nadejdzie wasza kolej, przychodzicie do kapitana portu i <strong>wybieracie pola</strong> na wielkiej mapie oceanu. Odkryte pole znika z mapy — nikt już go nie wybierze.</p>
+  </div>
+
+  <div class="card loot">
+    <div class="card-header"><span class="icon">📦</span><h2>Co znajdziecie na oceanie?</h2></div>
+    <div class="loot-grid">
+      <div class="loot-item"><span class="loot-icon">🌬️</span><span><strong>Wiatry</strong> — karty ruchu (północ, południe, wschód, zachód) potrzebne do rozwiązywania atoli.</span></div>
+      <div class="loot-item"><span class="loot-icon">🏝️</span><span><strong>Mapy atoli</strong> — zagadki do rozwiązania w wolnym czasie.</span></div>
+      <div class="loot-item"><span class="loot-icon">🐾</span><span><strong>Zwierzęta</strong> — punkty, które trafią od razu na wasz statek!</span></div>
+    </div>
+  </div>
+
+  <div class="card atoll">
+    <div class="card-header"><span class="icon">🧩</span><h2>Atole — jak je rozwiązywać?</h2></div>
+    <p>Atol to mała mapka z przeszkodami. Musicie poprowadzić łódź od startu do celu, używając Wiatrów. Uwaga — łódź płynie prosto aż uderzy w przeszkodę! Nie da się zatrzymać w połowie drogi. Za rozwiązanie atolu czekają cenniejsze nagrody niż te znalezione wprost na oceanie.</p>
+
+    <div class="puzzle-wrap" id="puzzleWrap">
+      <div class="puzzle-frame">
+        <div class="puzzle-grid" id="puzzleGrid"></div>
+      </div>
+
+      <div class="puzzle-controls">
+        <div class="puzzle-controls-row">
+          <div style="width:52px"></div>
+          <button class="wind-btn" data-dir="N" title="Północ"><span class="arrow">▲</span> Pn</button>
+          <div style="width:52px"></div>
+        </div>
+        <div class="puzzle-controls-row">
+          <button class="wind-btn" data-dir="W" title="Zachód">Zch <span class="arrow">◄</span></button>
+          <button class="wind-btn" data-dir="S" title="Południe"><span class="arrow">▼</span> Pd</button>
+          <button class="wind-btn" data-dir="E" title="Wschód">Wch <span class="arrow">►</span></button>
+        </div>
+      </div>
+
+      <div class="puzzle-hud">
+        <div class="move-counter">🌬️ Ruchy: <span class="num" id="moveCount">0</span></div>
+        <button class="hud-btn reset" id="btnReset">↩ Reset</button>
+        <button class="hud-btn newmap" id="btnNew">🏝️ Nowa mapa</button>
+      </div>
+
+      <div class="win-msg" id="winMsg"></div>
+      <div class="optimal-info" id="optimalInfo"></div>
+    </div>
+
+    <div class="flow">
+      <div class="flow-step"><span class="step-icon">🏝️</span><span class="step-label">Dostajesz<br>mapę</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">🤔</span><span class="step-label">Planujesz<br>na sucho</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">🌬️</span><span class="step-label">Wydajesz<br>Wiatry</span></div>
+      <span class="flow-arrow">➜</span>
+      <div class="flow-step"><span class="step-icon">🎁</span><span class="step-label">Odbierasz<br>nagrodę!</span></div>
+    </div>
+
+    <div class="tip">
+      <p>💡 <strong>Im mniej Wiatrów zużyjecie, tym cenniejsza nagroda!</strong> Szukajcie najkrótszej drogi. Możecie planować i zmieniać przydział Wiatrów między atolami do momentu oddania rozwiązania.</p>
+    </div>
+  </div>
+
+  <div class="card rules">
+    <div class="card-header"><span class="icon">⚡</span><h2>Ważne zasady</h2></div>
+    <p>Rozwiązane atole możecie oddawać w dowolnym momencie — o ostatnim dniu gry dowiecie się z wyprzedzeniem. Możecie trzymać wiele map atoli jednocześnie i sami decydujecie, który rozwiązać. Wiatry to wspólna pula załogi — zarządzajcie nimi mądrze! 🧠</p>
+  </div>
+
+</div>
+
+<div class="footer">Na Ratunek! — Obóz 2026</div>
+
+<script>
+(function () {
+  const SIZE = 6;
+  const DIRS = {
+    N: { dr: -1, dc: 0 },
+    S: { dr: 1, dc: 0 },
+    W: { dr: 0, dc: -1 },
+    E: { dr: 0, dc: 1 },
+  };
+
+  let obstacles, start, goal, player, moves, optimalLen, won, animating;
+
+  function key(r, c) { return r * SIZE + c; }
+
+  function slide(fromR, fromC, dr, dc, obs) {
+    let r = fromR, c = fromC;
+    while (true) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || obs.has(key(nr, nc))) break;
+      r = nr; c = nc;
+    }
+    return { r, c };
+  }
+
+  function bfs(s, g, obs) {
+    const sk = key(s.r, s.c), gk = key(g.r, g.c);
+    if (sk === gk) return [];
+    const visited = new Set([sk]);
+    const queue = [{ r: s.r, c: s.c, path: [] }];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const [name, { dr, dc }] of Object.entries(DIRS)) {
+        const res = slide(cur.r, cur.c, dr, dc, obs);
+        if (res.r === cur.r && res.c === cur.c) continue;
+        const rk = key(res.r, res.c);
+        if (rk === gk) return [...cur.path, name];
+        if (!visited.has(rk)) {
+          visited.add(rk);
+          queue.push({ r: res.r, c: res.c, path: [...cur.path, name] });
+        }
+      }
+    }
+    return null;
+  }
+
+  function generate() {
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const obs = new Set();
+      const s = { r: Math.floor(Math.random() * SIZE), c: 0 };
+      const g = { r: Math.floor(Math.random() * SIZE), c: SIZE - 1 };
+
+      const numObs = 4 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < numObs; i++) {
+        let r, c;
+        do {
+          r = Math.floor(Math.random() * SIZE);
+          c = Math.floor(Math.random() * SIZE);
+        } while ((r === s.r && c === s.c) || (r === g.r && c === g.c) || obs.has(key(r, c)));
+        obs.add(key(r, c));
+      }
+
+      const sol = bfs(s, g, obs);
+      if (sol && sol.length >= 3 && sol.length <= 10) {
+        return { obstacles: obs, start: s, goal: g, optimal: sol.length };
+      }
+    }
+    // Fallback: simple known-good puzzle
+    const obs = new Set([key(0, 2), key(1, 4), key(2, 2), key(3, 0), key(4, 1)]);
+    return { obstacles: obs, start: { r: 2, c: 0 }, goal: { r: 4, c: 4 }, optimal: 4 };
+  }
+
+  const gridEl = document.getElementById('puzzleGrid');
+  const moveCountEl = document.getElementById('moveCount');
+  const winMsgEl = document.getElementById('winMsg');
+  const optimalEl = document.getElementById('optimalInfo');
+
+  gridEl.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+
+  function render() {
+    gridEl.innerHTML = '';
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'puzzle-cell';
+        const k = key(r, c);
+
+        if (player.r === r && player.c === c) {
+          cell.classList.add('player');
+          cell.textContent = '⛵';
+          if (won) cell.classList.add('won');
+        } else if (goal.r === r && goal.c === c) {
+          cell.classList.add('goal-marker');
+          cell.textContent = '✕';
+        } else if (obstacles.has(k)) {
+          cell.classList.add('obstacle');
+          cell.textContent = '🏝️';
+        }
+
+        gridEl.appendChild(cell);
+      }
+    }
+    moveCountEl.textContent = moves;
+  }
+
+  function doMove(dir) {
+    if (won || animating) return;
+    const { dr, dc } = DIRS[dir];
+    const res = slide(player.r, player.c, dr, dc, obstacles);
+    if (res.r === player.r && res.c === player.c) return;
+
+    animating = true;
+    // Animate step by step
+    const steps = [];
+    let r = player.r, c = player.c;
+    while (true) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || obstacles.has(key(nr, nc))) break;
+      r = nr; c = nc;
+      steps.push({ r, c });
+    }
+
+    let i = 0;
+    const step = () => {
+      if (i < steps.length) {
+        player.r = steps[i].r;
+        player.c = steps[i].c;
+        render();
+        i++;
+        setTimeout(step, 60);
+      } else {
+        moves++;
+        moveCountEl.textContent = moves;
+        animating = false;
+        if (player.r === goal.r && player.c === goal.c) {
+          won = true;
+          render();
+          if (moves <= optimalLen) {
+            winMsgEl.textContent = '🎉 Idealnie! Najkrótsza droga!';
+          } else {
+            winMsgEl.textContent = `🎉 Dotarliście! (Użyto ${moves} Wiatrów, da się w ${optimalLen})`;
+          }
+          setButtons(false);
+        }
+      }
+    };
+    step();
+  }
+
+  function setButtons(enabled) {
+    document.querySelectorAll('.wind-btn').forEach(b => b.disabled = !enabled);
+  }
+
+  function initPuzzle() {
+    const p = generate();
+    obstacles = p.obstacles;
+    start = p.start;
+    goal = p.goal;
+    player = { r: start.r, c: start.c };
+    moves = 0;
+    optimalLen = p.optimal;
+    won = false;
+    animating = false;
+    winMsgEl.textContent = '';
+    optimalEl.textContent = `Najkrótsza droga: ${optimalLen} Wiatrów — znajdziecie ją? 🤔`;
+    setButtons(true);
+    render();
+  }
+
+  function resetPuzzle() {
+    player = { r: start.r, c: start.c };
+    moves = 0;
+    won = false;
+    animating = false;
+    winMsgEl.textContent = '';
+    setButtons(true);
+    render();
+  }
+
+  // Wind buttons
+  document.querySelectorAll('.wind-btn').forEach(btn => {
+    btn.addEventListener('click', () => doMove(btn.dataset.dir));
+  });
+
+  document.getElementById('btnReset').addEventListener('click', resetPuzzle);
+  document.getElementById('btnNew').addEventListener('click', initPuzzle);
+
+  // Keyboard
+  document.addEventListener('keydown', (e) => {
+    const map = { ArrowUp: 'N', ArrowDown: 'S', ArrowLeft: 'W', ArrowRight: 'E' };
+    if (map[e.key]) { e.preventDefault(); doMove(map[e.key]); }
+  });
+
+  // Touch swipe
+  let touchStart = null;
+  const pw = document.getElementById('puzzleWrap');
+  pw.addEventListener('touchstart', (e) => {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: true });
+  pw.addEventListener('touchend', (e) => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
+    if (Math.max(absDx, absDy) < 30) return;
+    if (absDx > absDy) {
+      doMove(dx > 0 ? 'E' : 'W');
+    } else {
+      doMove(dy > 0 ? 'S' : 'N');
+    }
+    touchStart = null;
+  }, { passive: true });
+
+  initPuzzle();
+})();
+</script>
+
+</body>
+</html>
