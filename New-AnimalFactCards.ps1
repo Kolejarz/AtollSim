@@ -5,15 +5,18 @@
 .DESCRIPTION
     Reads a CSV with animal names and interesting facts (both in Polish) and produces:
 
-      1. An AI drawing of every animal (Pollinations.ai image API — free, no API key).
+      1. An AI drawing of every animal (Google Gemini image model).
       2. A single printable HTML file (fact-cards.html) with one colorful, kid-friendly
          (8-14 y/o) card per animal: drawing + the fact restyled into a uniform
-         "Czy wiesz, ze...?" tone (Pollinations.ai text API). A6 cards, 4 per A4 sheet.
+         "Czy wiesz, ze...?" tone (Google Gemini text model). A6 cards, 4 per A4 sheet.
       3. trivia.csv — one lighthearted multiple-choice question per animal. The wrong
          answers (distractors) are cross-referenced from the OTHER animals in the file.
          Columns: Zwierze;Pytanie;A;B;C;D;PoprawnaOdpowiedz
 
-    No API keys or accounts are needed. Internet access is required.
+    Requires a free Google AI Studio API key (https://aistudio.google.com/apikey — free
+    tier, no credit card). Provide it via the GEMINI_API_KEY environment variable or the
+    -ApiKey parameter. Without a key the script still runs in degraded offline mode:
+    facts are used verbatim, trivia falls back to template questions, images are skipped.
 
 .PARAMETER InputCsv
     Path to the input CSV. Expected columns: animal name + fact (Polish). The script
@@ -30,8 +33,20 @@
 .PARAMETER FactColumn
     Explicit name of the fact column (overrides auto-detection).
 
+.PARAMETER ApiKey
+    Google Gemini API key. Defaults to the GEMINI_API_KEY environment variable.
+    Get a free one at https://aistudio.google.com/apikey
+
+.PARAMETER TextModel
+    Gemini model for fact restyling and trivia (default: gemini-2.5-flash).
+
+.PARAMETER ImageModel
+    Gemini model for the animal drawings (default: gemini-2.5-flash-image).
+
 .PARAMETER Seed
-    Seed for image generation and answer shuffling, so reruns are reproducible (default 42).
+    Seed for text generation and answer shuffling, so reruns are reproducible (default 42).
+    Note: the image model does not honor seeds, so drawings vary between runs (cached
+    images are reused unless -Force is given).
 
 .PARAMETER SkipImages
     Skip AI image generation (cards get a paw-print placeholder). Useful for fast dry runs.
@@ -56,6 +71,10 @@ param(
     [string]$NameColumn,
     [string]$FactColumn,
 
+    [string]$ApiKey = $env:GEMINI_API_KEY,
+    [string]$TextModel = 'gemini-2.5-flash',
+    [string]$ImageModel = 'gemini-2.5-flash-image',
+
     [int]$Seed = 42,
 
     [switch]$SkipImages,
@@ -63,8 +82,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$TextApiUrl  = 'https://text.pollinations.ai/'
-$ImageApiUrl = 'https://image.pollinations.ai/prompt/'
+$GeminiBase = 'https://generativelanguage.googleapis.com/v1beta/models'
+
+if (-not $ApiKey) {
+    Write-Warning ('No Gemini API key found (GEMINI_API_KEY env var or -ApiKey). Running in OFFLINE mode: ' +
+        'facts used verbatim, template trivia questions, no drawings. ' +
+        'Get a free key at https://aistudio.google.com/apikey')
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,28 +132,28 @@ function Invoke-WithRetry {
     }
 }
 
-function Invoke-PollinationsText {
-    <# Calls the free Pollinations text API (OpenAI-compatible POST, no key). #>
+function Invoke-GeminiText {
+    <# Calls the Gemini generateContent API in JSON mode; returns the reply text. #>
     param(
         [string]$SystemPrompt,
         [string]$UserPrompt
     )
+    if (-not $ApiKey) { throw 'No Gemini API key configured.' }
     $payload = @{
-        model    = 'openai'
-        messages = @(
-            @{ role = 'system'; content = $SystemPrompt }
-            @{ role = 'user';   content = $UserPrompt }
-        )
-        seed     = $Seed
-    } | ConvertTo-Json -Depth 5
+        system_instruction = @{ parts = @(@{ text = $SystemPrompt }) }
+        contents           = @(@{ role = 'user'; parts = @(@{ text = $UserPrompt }) })
+        generationConfig   = @{ responseMimeType = 'application/json'; seed = $Seed }
+    } | ConvertTo-Json -Depth 8
 
     Invoke-WithRetry -What 'text generation' -Action {
-        $resp = Invoke-WebRequest -Uri $TextApiUrl -Method Post `
+        $resp = Invoke-RestMethod -Uri "$GeminiBase/${TextModel}:generateContent" -Method Post `
+            -Headers @{ 'x-goog-api-key' = $ApiKey } `
             -ContentType 'application/json; charset=utf-8' `
             -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) `
-            -TimeoutSec 120 -UseBasicParsing
-        # Decode explicitly as UTF-8 — Windows PowerShell mis-decodes text/plain bodies.
-        [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
+            -TimeoutSec 120
+        $text = $resp.candidates[0].content.parts[0].text
+        if (-not $text) { throw 'Gemini returned an empty text response.' }
+        $text
     }
 }
 
@@ -146,17 +170,29 @@ function ConvertFrom-AiJson {
 }
 
 function Save-AnimalImage {
+    <# Generates a drawing via the Gemini image model and writes it to $OutFile (PNG). #>
     param(
         [string]$EnglishName,
-        [string]$OutFile,
-        [int]$ImageSeed
+        [string]$OutFile
     )
+    if (-not $ApiKey) { throw 'No Gemini API key configured.' }
     $prompt = "cute cartoon illustration of a $EnglishName, children's book style, bright cheerful colors, " +
-              'friendly smiling animal, simple ocean or nature background, sticker art, no text'
-    $url = $ImageApiUrl + [uri]::EscapeDataString($prompt) +
-           "?width=768&height=768&nologo=true&seed=$ImageSeed"
-    Invoke-WithRetry -What "image for '$EnglishName'" -Action {
-        Invoke-WebRequest -Uri $url -OutFile $OutFile -TimeoutSec 300 -UseBasicParsing
+              'friendly smiling animal, simple ocean or nature background, sticker art, square format, no text'
+    $payload = @{
+        contents = @(@{ role = 'user'; parts = @(@{ text = $prompt }) })
+    } | ConvertTo-Json -Depth 8
+
+    # Extra attempts: the free-tier image model has low per-minute rate limits (HTTP 429),
+    # and the exponential backoff usually rides them out.
+    Invoke-WithRetry -What "image for '$EnglishName'" -MaxAttempts 5 -Action {
+        $resp = Invoke-RestMethod -Uri "$GeminiBase/${ImageModel}:generateContent" -Method Post `
+            -Headers @{ 'x-goog-api-key' = $ApiKey } `
+            -ContentType 'application/json; charset=utf-8' `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) `
+            -TimeoutSec 300
+        $part = @($resp.candidates[0].content.parts) | Where-Object { $_.inlineData } | Select-Object -First 1
+        if (-not $part) { throw 'Gemini returned no image data.' }
+        [System.IO.File]::WriteAllBytes($OutFile, [Convert]::FromBase64String($part.inlineData.data))
     }
 }
 
@@ -221,7 +257,7 @@ foreach ($animal in $animals) {
     Write-Host "[$counter/$($animals.Count)] $($animal.Name): " -NoNewline
 
     try {
-        $reply = Invoke-PollinationsText -SystemPrompt $factSystemPrompt `
+        $reply = Invoke-GeminiText -SystemPrompt $factSystemPrompt `
             -UserPrompt "Zwierze: $($animal.Name)`nCiekawostka: $($animal.RawFact)"
         $parsed = ConvertFrom-AiJson $reply
         $animal.StyledFact  = ([string]$parsed.fakt).Trim()
@@ -233,20 +269,20 @@ foreach ($animal in $animals) {
     if (-not $animal.EnglishName) { $animal.EnglishName = $animal.Name }
     Write-Host 'fact OK' -NoNewline -ForegroundColor Green
 
-    if (-not $SkipImages) {
-        $imgPath = Join-Path $imagesDir "$($animal.Slug).jpg"
+    if (-not $SkipImages -and $ApiKey) {
+        $imgPath = Join-Path $imagesDir "$($animal.Slug).png"
         if ((Test-Path $imgPath) -and -not $Force) {
             Write-Host ', image cached' -ForegroundColor Green
         } else {
             try {
-                Save-AnimalImage -EnglishName $animal.EnglishName -OutFile $imgPath -ImageSeed ($Seed + $counter)
+                Save-AnimalImage -EnglishName $animal.EnglishName -OutFile $imgPath
                 Write-Host ', image OK' -ForegroundColor Green
             } catch {
                 Write-Host ''
                 Write-Warning "Image generation failed for '$($animal.Name)': $($_.Exception.Message)"
             }
         }
-        if (Test-Path $imgPath) { $animal.ImageFile = "images/$($animal.Slug).jpg" }
+        if (Test-Path $imgPath) { $animal.ImageFile = "images/$($animal.Slug).png" }
     } else {
         Write-Host ', image skipped' -ForegroundColor Yellow
     }
@@ -392,7 +428,7 @@ for ($offset = 0; $offset -lt $animals.Count; $offset += $batchSize) {
 
     $items = $null
     try {
-        $reply = Invoke-PollinationsText -SystemPrompt $triviaSystemPrompt -UserPrompt $batchPrompt
+        $reply = Invoke-GeminiText -SystemPrompt $triviaSystemPrompt -UserPrompt $batchPrompt
         $items = @(ConvertFrom-AiJson $reply)
     } catch {
         Write-Warning "Trivia generation failed for batch starting at '$($batch[0].Name)': $($_.Exception.Message)"
