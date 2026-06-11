@@ -43,6 +43,11 @@
 .PARAMETER ImageModel
     Gemini model for the animal drawings (default: gemini-2.5-flash-image).
 
+.PARAMETER DelaySec
+    Minimum pause in seconds between consecutive API calls (default: 6, which stays
+    under the free tier's ~10 requests/minute limit). Raise it if you keep hitting
+    HTTP 429 rate limits.
+
 .PARAMETER Seed
     Seed for text generation and answer shuffling, so reruns are reproducible (default 42).
     Note: the image model does not honor seeds, so drawings vary between runs (cached
@@ -74,6 +79,8 @@ param(
     [string]$ApiKey = $env:GEMINI_API_KEY,
     [string]$TextModel = 'gemini-2.5-flash',
     [string]$ImageModel = 'gemini-2.5-flash-image',
+
+    [double]$DelaySec = 6,
 
     [int]$Seed = 42,
 
@@ -115,6 +122,55 @@ function ConvertTo-HtmlSafe {
     return $Text -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;'
 }
 
+function Write-ApiLog {
+    param([string]$Message, [ConsoleColor]$Color = [ConsoleColor]::DarkGray)
+    Write-Host "  [$(Get-Date -Format 'HH:mm:ss')] $Message" -ForegroundColor $Color
+}
+
+function Get-ApiErrorInfo {
+    <# Extracts HTTP status, the Gemini error body (quota details!) and any server-suggested
+       retry delay from a failed web request, on both PowerShell 7 and 5.1. #>
+    param($ErrorRecord)
+    $info = [pscustomobject]@{ StatusCode = $null; Reason = $null; RetryAfterSec = $null }
+    try { $info.StatusCode = [int]$ErrorRecord.Exception.Response.StatusCode } catch {}
+    $body = $ErrorRecord.ErrorDetails.Message
+    if (-not $body -and $ErrorRecord.Exception.Response) {
+        try {
+            $stream = $ErrorRecord.Exception.Response.GetResponseStream()
+            $body = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+        } catch {}
+    }
+    if ($body) {
+        try {
+            $j = $body | ConvertFrom-Json
+            $info.Reason = "$($j.error.status): $($j.error.message)"
+            foreach ($d in @($j.error.details)) {
+                if ($d.'@type' -match 'RetryInfo' -and $d.retryDelay) {
+                    $info.RetryAfterSec = [double]($d.retryDelay -replace '[^\d.]')
+                }
+                if ($d.'@type' -match 'QuotaFailure') {
+                    $quota = @($d.violations | ForEach-Object { $_.quotaId }) -join ', '
+                    if ($quota) { $info.Reason += " [quota: $quota]" }
+                }
+            }
+        } catch {
+            $info.Reason = $body.Substring(0, [math]::Min(400, $body.Length))
+        }
+    }
+    return $info
+}
+
+$script:LastApiCall = [datetime]::MinValue
+
+function Wait-ForRateLimit {
+    <# Enforces a minimum gap of $DelaySec between consecutive API calls. #>
+    $remaining = $DelaySec - ([datetime]::Now - $script:LastApiCall).TotalSeconds
+    if ($remaining -gt 0) {
+        Write-ApiLog ('Throttle: waiting {0:n1}s before next API call (-DelaySec {1}).' -f $remaining, $DelaySec)
+        Start-Sleep -Seconds $remaining
+    }
+}
+
 function Invoke-WithRetry {
     param(
         [scriptblock]$Action,
@@ -122,12 +178,38 @@ function Invoke-WithRetry {
         [string]$What = 'request'
     )
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        try { return & $Action }
-        catch {
-            if ($attempt -eq $MaxAttempts) { throw }
-            $wait = [math]::Pow(2, $attempt)
-            Write-Warning "Attempt $attempt/$MaxAttempts for $What failed ($($_.Exception.Message)). Retrying in ${wait}s..."
+        Wait-ForRateLimit
+        try {
+            Write-ApiLog "$What — sending request (attempt $attempt/$MaxAttempts)..."
+            $result = & $Action
+            Write-ApiLog "$What — HTTP OK" ([ConsoleColor]::DarkGreen)
+            return $result
+        } catch {
+            $err = Get-ApiErrorInfo $_
+            $status = if ($err.StatusCode) { "HTTP $($err.StatusCode)" } else { $_.Exception.Message }
+            Write-ApiLog "$What — FAILED: $status" ([ConsoleColor]::Yellow)
+            if ($err.Reason) { Write-ApiLog "API response: $($err.Reason)" ([ConsoleColor]::Yellow) }
+            # Only 429 (rate limit) and 5xx (server hiccups) can succeed on retry; other
+            # HTTP errors (bad key, bad request, quota=0) would just fail again.
+            $retryable = (-not $err.StatusCode) -or $err.StatusCode -eq 429 -or $err.StatusCode -ge 500
+            if (-not $retryable) {
+                Write-ApiLog "Next action: HTTP $($err.StatusCode) is not retryable — giving up on $What." ([ConsoleColor]::Red)
+                throw
+            }
+            if ($attempt -eq $MaxAttempts) {
+                Write-ApiLog "Next action: giving up on $What after $MaxAttempts attempts." ([ConsoleColor]::Red)
+                throw
+            }
+            $wait = [math]::Pow(2, $attempt + 1)            # 4, 8, 16, 32...
+            if ($err.RetryAfterSec) {
+                $wait = [math]::Max($wait, $err.RetryAfterSec + 1)
+                Write-ApiLog "Next action: server asked to retry after $($err.RetryAfterSec)s — waiting ${wait}s, then retrying." ([ConsoleColor]::Yellow)
+            } else {
+                Write-ApiLog "Next action: waiting ${wait}s, then retrying (attempt $($attempt + 1)/$MaxAttempts)." ([ConsoleColor]::Yellow)
+            }
             Start-Sleep -Seconds $wait
+        } finally {
+            $script:LastApiCall = [datetime]::Now
         }
     }
 }
@@ -145,7 +227,7 @@ function Invoke-GeminiText {
         generationConfig   = @{ responseMimeType = 'application/json'; seed = $Seed }
     } | ConvertTo-Json -Depth 8
 
-    Invoke-WithRetry -What 'text generation' -Action {
+    Invoke-WithRetry -What "text generation ($TextModel)" -Action {
         $resp = Invoke-RestMethod -Uri "$GeminiBase/${TextModel}:generateContent" -Method Post `
             -Headers @{ 'x-goog-api-key' = $ApiKey } `
             -ContentType 'application/json; charset=utf-8' `
@@ -184,7 +266,7 @@ function Save-AnimalImage {
 
     # Extra attempts: the free-tier image model has low per-minute rate limits (HTTP 429),
     # and the exponential backoff usually rides them out.
-    Invoke-WithRetry -What "image for '$EnglishName'" -MaxAttempts 5 -Action {
+    Invoke-WithRetry -What "image for '$EnglishName' ($ImageModel)" -MaxAttempts 5 -Action {
         $resp = Invoke-RestMethod -Uri "$GeminiBase/${ImageModel}:generateContent" -Method Post `
             -Headers @{ 'x-goog-api-key' = $ApiKey } `
             -ContentType 'application/json; charset=utf-8' `
@@ -254,7 +336,7 @@ Odpowiedz WYLACZNIE poprawnym JSON-em w formacie:
 $counter = 0
 foreach ($animal in $animals) {
     $counter++
-    Write-Host "[$counter/$($animals.Count)] $($animal.Name): " -NoNewline
+    Write-Host "[$counter/$($animals.Count)] $($animal.Name)" -ForegroundColor Cyan
 
     try {
         $reply = Invoke-GeminiText -SystemPrompt $factSystemPrompt `
@@ -263,28 +345,27 @@ foreach ($animal in $animals) {
         $animal.StyledFact  = ([string]$parsed.fakt).Trim()
         $animal.EnglishName = ([string]$parsed.english_name).Trim()
     } catch {
-        Write-Warning "Text generation failed ($($_.Exception.Message)) — using the raw fact verbatim."
+        Write-ApiLog "Next action: using the raw fact verbatim for '$($animal.Name)' and continuing." ([ConsoleColor]::Red)
     }
     if (-not $animal.StyledFact)  { $animal.StyledFact  = $animal.RawFact }
     if (-not $animal.EnglishName) { $animal.EnglishName = $animal.Name }
-    Write-Host 'fact OK' -NoNewline -ForegroundColor Green
+    Write-Host '  fact OK' -ForegroundColor Green
 
     if (-not $SkipImages -and $ApiKey) {
         $imgPath = Join-Path $imagesDir "$($animal.Slug).png"
         if ((Test-Path $imgPath) -and -not $Force) {
-            Write-Host ', image cached' -ForegroundColor Green
+            Write-Host '  image cached (reusing existing file, use -Force to regenerate)' -ForegroundColor Green
         } else {
             try {
                 Save-AnimalImage -EnglishName $animal.EnglishName -OutFile $imgPath
-                Write-Host ', image OK' -ForegroundColor Green
+                Write-Host '  image OK' -ForegroundColor Green
             } catch {
-                Write-Host ''
-                Write-Warning "Image generation failed for '$($animal.Name)': $($_.Exception.Message)"
+                Write-ApiLog "Next action: card for '$($animal.Name)' gets a placeholder; rerun later to fill it in (cached images are kept)." ([ConsoleColor]::Red)
             }
         }
         if (Test-Path $imgPath) { $animal.ImageFile = "images/$($animal.Slug).png" }
     } else {
-        Write-Host ', image skipped' -ForegroundColor Yellow
+        Write-Host '  image skipped' -ForegroundColor Yellow
     }
 }
 
@@ -431,7 +512,7 @@ for ($offset = 0; $offset -lt $animals.Count; $offset += $batchSize) {
         $reply = Invoke-GeminiText -SystemPrompt $triviaSystemPrompt -UserPrompt $batchPrompt
         $items = @(ConvertFrom-AiJson $reply)
     } catch {
-        Write-Warning "Trivia generation failed for batch starting at '$($batch[0].Name)': $($_.Exception.Message)"
+        Write-ApiLog "Next action: using offline template questions for the batch starting at '$($batch[0].Name)'." ([ConsoleColor]::Red)
     }
 
     foreach ($animal in $batch) {
