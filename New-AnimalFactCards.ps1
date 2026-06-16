@@ -5,7 +5,7 @@
 .DESCRIPTION
     Reads a CSV with animal names and interesting facts (both in Polish) and produces:
 
-      1. An AI drawing of every animal (Google Gemini image model).
+      1. An AI drawing of every animal (Cloudflare Workers AI image model).
       2. A single printable HTML file (fact-cards.html) with one colorful, kid-friendly
          (8-14 y/o) card per animal: drawing + the fact restyled into a uniform
          "Czy wiesz, ze...?" tone (Google Gemini text model). A6 cards, 4 per A4 sheet.
@@ -13,10 +13,13 @@
          answers (distractors) are cross-referenced from the OTHER animals in the file.
          Columns: Zwierze;Pytanie;A;B;C;D;PoprawnaOdpowiedz
 
-    Requires a free Google AI Studio API key (https://aistudio.google.com/apikey — free
-    tier, no credit card). Provide it via the GEMINI_API_KEY environment variable or the
-    -ApiKey parameter. Without a key the script still runs in degraded offline mode:
-    facts are used verbatim, trivia falls back to template questions, images are skipped.
+    Text (fact restyling + trivia) uses a free Google AI Studio API key
+    (https://aistudio.google.com/apikey — free tier, no credit card), via the
+    GEMINI_API_KEY env var or -ApiKey. Drawings use Cloudflare Workers AI (free tier,
+    ~10k neurons/day, no credit card), via the CF_ACCOUNT_ID + CF_API_TOKEN env vars or
+    the -CfAccountId / -CfApiToken parameters. Each backend degrades independently: with
+    no Gemini key, facts are used verbatim and trivia falls back to template questions;
+    with no Cloudflare credentials, drawings are skipped and cards get a placeholder.
 
 .PARAMETER InputCsv
     Path to the input CSV. Expected columns: animal name + fact (Polish). The script
@@ -40,18 +43,29 @@
 .PARAMETER TextModel
     Gemini model for fact restyling and trivia (default: gemini-2.5-flash).
 
+.PARAMETER CfAccountId
+    Cloudflare account ID used for image generation. Defaults to the CF_ACCOUNT_ID env var.
+    Find it at https://dash.cloudflare.com (the hex string in the URL, or on the Workers &
+    Pages overview page).
+
+.PARAMETER CfApiToken
+    Cloudflare API token with the "Workers AI" permission. Defaults to the CF_API_TOKEN
+    env var. Create one at https://dash.cloudflare.com/profile/api-tokens
+    (use the "Workers AI" template). The free tier includes ~10k neurons/day — plenty
+    for dozens of drawings. If either CF value is missing, drawings are skipped and the
+    cards get a paw-print placeholder.
+
 .PARAMETER ImageModel
-    Gemini model for the animal drawings (default: gemini-2.5-flash-image).
+    Cloudflare Workers AI model for the drawings (default: @cf/black-forest-labs/flux-1-schnell).
 
 .PARAMETER DelaySec
     Minimum pause in seconds between consecutive API calls (default: 6, which stays
-    under the free tier's ~10 requests/minute limit). Raise it if you keep hitting
+    under the Gemini free tier's ~10 requests/minute limit). Raise it if you keep hitting
     HTTP 429 rate limits.
 
 .PARAMETER Seed
-    Seed for text generation and answer shuffling, so reruns are reproducible (default 42).
-    Note: the image model does not honor seeds, so drawings vary between runs (cached
-    images are reused unless -Force is given).
+    Seed for text generation, image generation, and answer shuffling, so reruns are
+    reproducible (default 42). Cached images are reused unless -Force is given.
 
 .PARAMETER SkipImages
     Skip AI image generation (cards get a paw-print placeholder). Useful for fast dry runs.
@@ -61,10 +75,16 @@
     existing images are reused (so an interrupted run can be resumed cheaply).
 
 .EXAMPLE
+    # Keys via environment variables (recommended — keeps them out of shell history):
+    $env:GEMINI_API_KEY = 'AIza...'
+    $env:CF_ACCOUNT_ID  = 'your-account-id'
+    $env:CF_API_TOKEN   = 'your-workers-ai-token'
     ./New-AnimalFactCards.ps1 -InputCsv ./animals-sample.csv
 
 .EXAMPLE
-    ./New-AnimalFactCards.ps1 -InputCsv ./zwierzeta.csv -OutputDir ./karty -Seed 7
+    # Keys via parameters:
+    ./New-AnimalFactCards.ps1 -InputCsv ./zwierzeta.csv -OutputDir ./karty `
+        -ApiKey 'AIza...' -CfAccountId 'abc123' -CfApiToken 'cf-token...'
 #>
 [CmdletBinding()]
 param(
@@ -78,7 +98,10 @@ param(
 
     [string]$ApiKey = $env:GEMINI_API_KEY,
     [string]$TextModel = 'gemini-2.5-flash',
-    [string]$ImageModel = 'gemini-2.5-flash-image',
+
+    [string]$CfAccountId = $env:CF_ACCOUNT_ID,
+    [string]$CfApiToken = $env:CF_API_TOKEN,
+    [string]$ImageModel = '@cf/black-forest-labs/flux-1-schnell',
 
     [double]$DelaySec = 6,
 
@@ -90,11 +113,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $GeminiBase = 'https://generativelanguage.googleapis.com/v1beta/models'
+$CfBase = 'https://api.cloudflare.com/client/v4/accounts'
+
+$ImagesEnabled = [bool]($CfAccountId -and $CfApiToken)
 
 if (-not $ApiKey) {
-    Write-Warning ('No Gemini API key found (GEMINI_API_KEY env var or -ApiKey). Running in OFFLINE mode: ' +
-        'facts used verbatim, template trivia questions, no drawings. ' +
-        'Get a free key at https://aistudio.google.com/apikey')
+    Write-Warning ('No Gemini API key found (GEMINI_API_KEY env var or -ApiKey). Text runs in OFFLINE mode: ' +
+        'facts used verbatim, template trivia questions. Get a free key at https://aistudio.google.com/apikey')
+}
+if (-not $ImagesEnabled) {
+    Write-Warning ('No Cloudflare credentials found (CF_ACCOUNT_ID + CF_API_TOKEN env vars or ' +
+        '-CfAccountId / -CfApiToken). Drawings will be skipped (cards get a placeholder). ' +
+        'Get a free token at https://dash.cloudflare.com/profile/api-tokens (Workers AI template).')
 }
 
 # ---------------------------------------------------------------------------
@@ -143,15 +173,23 @@ function Get-ApiErrorInfo {
     if ($body) {
         try {
             $j = $body | ConvertFrom-Json
-            $info.Reason = "$($j.error.status): $($j.error.message)"
-            foreach ($d in @($j.error.details)) {
-                if ($d.'@type' -match 'RetryInfo' -and $d.retryDelay) {
-                    $info.RetryAfterSec = [double]($d.retryDelay -replace '[^\d.]')
+            if ($j.error) {
+                # Gemini error shape: { error: { status, message, details: [...] } }
+                $info.Reason = "$($j.error.status): $($j.error.message)"
+                foreach ($d in @($j.error.details)) {
+                    if ($d.'@type' -match 'RetryInfo' -and $d.retryDelay) {
+                        $info.RetryAfterSec = [double]($d.retryDelay -replace '[^\d.]')
+                    }
+                    if ($d.'@type' -match 'QuotaFailure') {
+                        $quota = @($d.violations | ForEach-Object { $_.quotaId }) -join ', '
+                        if ($quota) { $info.Reason += " [quota: $quota]" }
+                    }
                 }
-                if ($d.'@type' -match 'QuotaFailure') {
-                    $quota = @($d.violations | ForEach-Object { $_.quotaId }) -join ', '
-                    if ($quota) { $info.Reason += " [quota: $quota]" }
-                }
+            } elseif ($j.errors) {
+                # Cloudflare error shape: { success: false, errors: [{ code, message }] }
+                $info.Reason = (@($j.errors | ForEach-Object { "$($_.code): $($_.message)" }) -join '; ')
+            } else {
+                $info.Reason = $body.Substring(0, [math]::Min(400, $body.Length))
             }
         } catch {
             $info.Reason = $body.Substring(0, [math]::Min(400, $body.Length))
@@ -252,29 +290,33 @@ function ConvertFrom-AiJson {
 }
 
 function Save-AnimalImage {
-    <# Generates a drawing via the Gemini image model and writes it to $OutFile (PNG). #>
+    <# Generates a drawing via Cloudflare Workers AI (FLUX) and writes it to $OutFile (JPEG). #>
     param(
         [string]$EnglishName,
         [string]$OutFile
     )
-    if (-not $ApiKey) { throw 'No Gemini API key configured.' }
+    if (-not $ImagesEnabled) { throw 'No Cloudflare credentials configured.' }
     $prompt = "cute cartoon illustration of a $EnglishName, children's book style, bright cheerful colors, " +
               'friendly smiling animal, simple ocean or nature background, sticker art, square format, no text'
-    $payload = @{
-        contents = @(@{ role = 'user'; parts = @(@{ text = $prompt }) })
-    } | ConvertTo-Json -Depth 8
+    # FLUX-schnell caps at 8 steps; 6 is a good speed/quality balance.
+    $payload = @{ prompt = $prompt; steps = 6; seed = $Seed } | ConvertTo-Json -Depth 4
+    $uri = "$CfBase/$CfAccountId/ai/run/$ImageModel"
 
-    # Extra attempts: the free-tier image model has low per-minute rate limits (HTTP 429),
-    # and the exponential backoff usually rides them out.
+    # Extra attempts: the free tier meters by daily "neurons" and can return HTTP 429 in
+    # bursts; the exponential backoff usually rides them out.
     Invoke-WithRetry -What "image for '$EnglishName' ($ImageModel)" -MaxAttempts 5 -Action {
-        $resp = Invoke-RestMethod -Uri "$GeminiBase/${ImageModel}:generateContent" -Method Post `
-            -Headers @{ 'x-goog-api-key' = $ApiKey } `
-            -ContentType 'application/json; charset=utf-8' `
+        $resp = Invoke-RestMethod -Uri $uri -Method Post `
+            -Headers @{ Authorization = "Bearer $CfApiToken" } `
+            -ContentType 'application/json' `
             -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) `
             -TimeoutSec 300
-        $part = @($resp.candidates[0].content.parts) | Where-Object { $_.inlineData } | Select-Object -First 1
-        if (-not $part) { throw 'Gemini returned no image data.' }
-        [System.IO.File]::WriteAllBytes($OutFile, [Convert]::FromBase64String($part.inlineData.data))
+        if (-not $resp.success) {
+            throw "Cloudflare returned success=false: $(@($resp.errors | ForEach-Object { $_.message }) -join '; ')"
+        }
+        # FLUX returns the image as base64-encoded JPEG in result.image.
+        $b64 = $resp.result.image
+        if (-not $b64) { throw 'Cloudflare returned no image data.' }
+        [System.IO.File]::WriteAllBytes($OutFile, [Convert]::FromBase64String($b64))
     }
 }
 
@@ -351,8 +393,8 @@ foreach ($animal in $animals) {
     if (-not $animal.EnglishName) { $animal.EnglishName = $animal.Name }
     Write-Host '  fact OK' -ForegroundColor Green
 
-    if (-not $SkipImages -and $ApiKey) {
-        $imgPath = Join-Path $imagesDir "$($animal.Slug).png"
+    if (-not $SkipImages -and $ImagesEnabled) {
+        $imgPath = Join-Path $imagesDir "$($animal.Slug).jpg"
         if ((Test-Path $imgPath) -and -not $Force) {
             Write-Host '  image cached (reusing existing file, use -Force to regenerate)' -ForegroundColor Green
         } else {
@@ -363,7 +405,7 @@ foreach ($animal in $animals) {
                 Write-ApiLog "Next action: card for '$($animal.Name)' gets a placeholder; rerun later to fill it in (cached images are kept)." ([ConsoleColor]::Red)
             }
         }
-        if (Test-Path $imgPath) { $animal.ImageFile = "images/$($animal.Slug).png" }
+        if (Test-Path $imgPath) { $animal.ImageFile = "images/$($animal.Slug).jpg" }
     } else {
         Write-Host '  image skipped' -ForegroundColor Yellow
     }
